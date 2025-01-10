@@ -32,7 +32,7 @@ unordered_map<std::string, std::unique_ptr<Tree>> trees;
 class Port {
 public:
 
-    const PortDeclarationSyntax* port;
+    const SyntaxNode*  port;
     string portType; // var or net
     string direction;
     string netType;
@@ -41,7 +41,7 @@ public:
     int endDim;
     vector<string> identifiers;
 
-    explicit Port(const PortDeclarationSyntax* port, string portType, string direction, string netType, string dataType, int startDim, int endDim, vector<string> identifiers) {
+    explicit Port(const SyntaxNode* port, string portType, string direction, string netType, string dataType, int startDim, int endDim, vector<string> identifiers) {
         this->port = port;
         this->portType = std::move(portType);
         this->direction = std::move(direction);
@@ -75,18 +75,17 @@ public:
     vector<string> getPorts() const {
         vector<const SyntaxNode*> portNodes;
 
-        getAllNodes(*this->moduleDec, SyntaxKind::PortDeclaration, portNodes);
+        getAllNodes(*this->moduleDec, SyntaxKind::PortDeclaration, portNodes); // for ports declared after module header
+        getAllNodes(*this->moduleDec, SyntaxKind::ImplicitAnsiPort, portNodes);   // for ports declared inside module header
 
         cout << "found " << portNodes.size() << " ports" << endl;
 
         vector<string> portStrings;
         for (const SyntaxNode* portDecNode: portNodes) {
 
-            const auto& portDec = portDecNode->as<PortDeclarationSyntax>();
-
             // get port header
-            const SyntaxNode *netPortNode = nullptr;
-            const SyntaxNode *varPortNode = nullptr;
+            const SyntaxNode* netPortNode = nullptr;
+            const SyntaxNode* varPortNode = nullptr;
 
             string direction;
             string dataType;
@@ -95,7 +94,7 @@ public:
 
             getNode(*portDecNode, SyntaxKind::NetPortHeader, netPortNode);
             getNode(*portDecNode, SyntaxKind::VariablePortHeader, varPortNode);
-            if (netPortNode) {
+            if (netPortNode != nullptr) {
                 portType = "net";
 
                 const auto &portHeader = netPortNode->as<NetPortHeaderSyntax>();
@@ -104,7 +103,6 @@ public:
 
                 const DataTypeSyntax *dataTypeNode = portHeader.dataType;
 
-                dataType;
                 if (dataTypeNode->kind == SyntaxKind::NamedType) {
                     const auto &namedType = dataTypeNode->as<NamedTypeSyntax>();
                     dataType = string(namedType.name->getFirstToken().valueText());
@@ -119,7 +117,8 @@ public:
                 }
 
                 netType = string(portHeader.netType.valueText());
-            } else if (varPortNode) {
+            } else if (varPortNode != nullptr) {
+                cout << "var" << endl;
                 portType = "var";
 
                 const auto &portHeader = varPortNode->as<VariablePortHeaderSyntax>();
@@ -142,6 +141,8 @@ public:
                 }
 
                 // no port header for variable ports :(
+            } else {
+                cout << "didn't find either a net port header nor var port header. something went wrong." << endl;
             }
 
             cout << "direction: " << direction << endl;
@@ -169,6 +170,7 @@ public:
 
             vector<const SyntaxNode *> identNodes;
             getAllNodes(*portDecNode, SyntaxKind::Declarator, identNodes);
+//            traverseNode(*portDecNode, 0);
 
             vector<string> identifiers;
             for (const SyntaxNode *node: identNodes) {
@@ -182,7 +184,7 @@ public:
             std::string handleStr = "port" + std::to_string(portCounter++);
 
             // assemble port instance
-            auto port = make_unique<Port>(&portDec, portType, direction, netType, dataType, startDim, endDim, identifiers);
+            auto port = make_unique<Port>(portDecNode, portType, direction, netType, dataType, startDim, endDim, identifiers);
 
             // Store the instance in the map
             ports[handleStr] = std::move(port);
@@ -338,6 +340,8 @@ int SlangParse(ClientData clientData, Tcl_Interp* interp, int argc, const char* 
 
     // Create a new Tree instance
     auto tree = std::make_unique<Tree>(&root);
+
+//    traverseNode(root, 0);
 
     // Generate a unique handle
     static int treeCounter = 0;
