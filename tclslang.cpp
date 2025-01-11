@@ -4,7 +4,13 @@
 
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/SyntaxNode.h"
+#include <slang/ast/symbols/PortSymbols.h>
+#include <slang/ast/types/DeclaredType.h>
+#include <slang/ast/types/Type.h>
+#include <slang/ast/types/AllTypes.h>
 #include <slang/ast/symbols/CompilationUnitSymbols.h>
+#include <slang/ast/Compilation.h>
+#include <slang/ast/symbols/InstanceSymbols.h>
 #include <iostream>
 #include <cstring>
 #include <string>
@@ -13,13 +19,11 @@
 #include <slang/syntax/AllSyntax.h>
 
 using namespace slang::syntax;
+using namespace slang::ast;
 using namespace std;
 
-void getNode(const SyntaxNode& node, SyntaxKind kind, const SyntaxNode*& searchNode);
-void getAllNodes(const SyntaxNode& node, SyntaxKind kind, std::vector<const SyntaxNode*>& nodes);
 int Tree_MethodCmd(ClientData clientData, Tcl_Interp *interp, int argc, const char *argv[]);
 int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
-void traverseNode(const SyntaxNode& node, int depth);
 int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
 class Port;
 class Module;
@@ -32,28 +36,22 @@ unordered_map<std::string, std::unique_ptr<Tree>> trees;
 class Port {
 public:
 
-    const SyntaxNode*  port;
+    const PortSymbol*  port;
     string portType; // var or net
     string direction;
-    string netType;
-    string dataType;
+    string decType;
+    string dimType;
     int startDim;
     int endDim;
-    vector<string> identifiers;
 
-    explicit Port(const SyntaxNode* port, string portType, string direction, string netType, string dataType, int startDim, int endDim, vector<string> identifiers) {
+    explicit Port(const PortSymbol* port, string portType, string decType, string direction, string dimType, int startDim, int endDim) {
         this->port = port;
         this->portType = std::move(portType);
         this->direction = std::move(direction);
-        this->netType = std::move(netType);
-        this->dataType = std::move(dataType);
+        this->decType = std::move(decType);
         this->startDim = startDim;
         this->endDim = endDim;
-        this->identifiers = std::move(identifiers);
-    }
-
-    string getString() {
-        return port->toString();
+        this->dimType = std::move(dimType);
     }
 
 };
@@ -61,139 +59,109 @@ public:
 class Module {
 public:
     string name;
-    const ModuleDeclarationSyntax* moduleDec = nullptr;
+    const InstanceSymbol* moduleDec = nullptr;
 
-    explicit Module(const string& name, const ModuleDeclarationSyntax* moduleDec) {
+    explicit Module(const string& name, const InstanceSymbol* moduleDec) {
         this->name = name;
         this->moduleDec = moduleDec;
     }
 
     string getHeaderName() const {
-        return string(this->moduleDec->header->name.valueText());
+        return string(this->moduleDec->name);
     }
 
     vector<string> getPorts() const {
-        vector<const SyntaxNode*> portNodes;
 
-        getAllNodes(*this->moduleDec, SyntaxKind::PortDeclaration, portNodes); // for ports declared after module header
-        getAllNodes(*this->moduleDec, SyntaxKind::ImplicitAnsiPort, portNodes);   // for ports declared inside module header
 
-        cout << "found " << portNodes.size() << " ports" << endl;
 
-        vector<string> portStrings;
-        for (const SyntaxNode* portDecNode: portNodes) {
+        vector<string> portHandles;
 
-            // get port header
-            const SyntaxNode* netPortNode = nullptr;
-            const SyntaxNode* varPortNode = nullptr;
-
+        // Inspect ports
+        for (const auto& portOpt : moduleDec->body.getPortList()) {
+            string name;
             string direction;
-            string dataType;
-            string netType;
             string portType;
+            string decType;
+            string dimType;
+            int dimStart = 0;
+            int dimEnd = 0;
 
-            getNode(*portDecNode, SyntaxKind::NetPortHeader, netPortNode);
-            getNode(*portDecNode, SyntaxKind::VariablePortHeader, varPortNode);
-            if (netPortNode != nullptr) {
-                portType = "net";
+            const auto& portSymbol = portOpt->as<PortSymbol>();
 
-                const auto &portHeader = netPortNode->as<NetPortHeaderSyntax>();
+            name = portSymbol.name;
+            direction = toString(portSymbol.direction);
+            portType = toString(portSymbol.internalSymbol->kind);
 
-                direction = string(portHeader.direction.valueText());
-
-                const DataTypeSyntax *dataTypeNode = portHeader.dataType;
-
-                if (dataTypeNode->kind == SyntaxKind::NamedType) {
-                    const auto &namedType = dataTypeNode->as<NamedTypeSyntax>();
-                    dataType = string(namedType.name->getFirstToken().valueText());
-                } else if (dataTypeNode->kind == SyntaxKind::ImplicitType) {
-                    dataType = "wire";
-                } else if (dataTypeNode->kind == SyntaxKind::RegType){
-                    dataType = "reg";
-                } else {
-                    cout << "found data type node as kind: " << toString(dataTypeNode->kind) << endl;
-                    cout << "new data type likely needs to be implemented." << endl;
-
-                }
-
-                netType = string(portHeader.netType.valueText());
-            } else if (varPortNode != nullptr) {
-                cout << "var" << endl;
-                portType = "var";
-
-                const auto &portHeader = varPortNode->as<VariablePortHeaderSyntax>();
-
-                direction = string(portHeader.direction.valueText());
-
-                const DataTypeSyntax *dataTypeNode = portHeader.dataType;
-
-                if (dataTypeNode->kind == SyntaxKind::NamedType) {
-                    const auto &namedType = dataTypeNode->as<NamedTypeSyntax>();
-                    dataType = string(namedType.name->getFirstToken().valueText());
-                } else if (dataTypeNode->kind == SyntaxKind::ImplicitType) {
-                    dataType = "wire";
-                } else if (dataTypeNode->kind == SyntaxKind::RegType){
-                    dataType = "reg";
-                } else {
-                    cout << "found data type node as kind: " << toString(dataTypeNode->kind) << endl;
-                    cout << "new data type likely needs to be implemented." << endl;
-
-                }
-
-                // no port header for variable ports :(
-            } else {
-                cout << "didn't find either a net port header nor var port header. something went wrong." << endl;
+            const Symbol* internal = portSymbol.internalSymbol;
+            if (!internal) {
+                std::cout << "Internal symbol is null" << std::endl;
+                continue;
             }
 
+            // Determine if it's wire or reg
+            if (portSymbol.isNetPort() || portSymbol.direction == ArgumentDirection::In || portSymbol.direction == ArgumentDirection::InOut) {
+                decType = "wire";
+                std::cout << "Port " << portSymbol.name << " is a wire." << std::endl;
+            } else {
+                decType = "reg";
+                std::cout << "Port " << portSymbol.name << " is a reg." << std::endl;
+            }
+
+            cout << portSymbol.internalSymbol << endl;
+            cout << "kind: " << portSymbol.internalSymbol->kind << endl;
+
+            // Get the port's type and check if it's an array
+            const Type& portTypeNode = portSymbol.getType();
+            if (portTypeNode.isArray()) {
+                const auto &arrayType = portTypeNode.getCanonicalType();
+                if (arrayType.isPackedArray()) {
+                    const auto &dim = arrayType.as<PackedArrayType>();
+                    dimType = "Packed";
+                    dimStart = dim.range.left;
+                    dimEnd = dim.range.right;
+                } else if (arrayType.isUnpackedArray()) {
+                    const auto &dim = arrayType.as<FixedSizeUnpackedArrayType>();
+                    dimType = "Fixed Size Unpacked";
+                    dimStart = dim.range.left;
+                    dimEnd = dim.range.right;
+                } else if (arrayType.isAssociativeArray()) {
+                    const auto &dim = arrayType.as<AssociativeArrayType>();
+                    dimType = "Associative";
+                    cout << "found 'associative' array type. no dimensions." << endl;
+                } else if (arrayType.isDynamicallySizedArray()) {
+                    const auto &dim = arrayType.as<DynamicArrayType>();
+                    dimType = "Dynamic";
+                    cout << "found 'dynamic' array type. no dimensions." << endl;
+                } else {
+                    cout << "unknown dimension type found." << endl;
+                    dimType = "Unknown";
+                }
+            } else {
+                cout << "did not find dimensions for " << name << endl;
+            }
+
+            cout << "name: " << name << endl;
             cout << "direction: " << direction << endl;
-            cout << "data type: " << dataType << endl;
-            cout << "net type: " << netType << endl;
+            cout << "declared type: " << decType << endl;
+            cout << "port type: " << portType << endl;
+            cout << "dimension type: " << dimType << endl;
+            cout << "dimensions: [" << dimStart << ":" << dimEnd << "]" << endl;
 
-            vector<const SyntaxNode *> dimNodes;
-            getAllNodes(*portDecNode, SyntaxKind::IntegerLiteralExpression, dimNodes);
-
-            int startDim = 0;
-            int endDim = 0;
-
-            if (dimNodes.size() == 2) {
-                const auto &startDimNode = dimNodes[0]->as<LiteralExpressionSyntax>();
-                const auto &endDimNode = dimNodes[1]->as<LiteralExpressionSyntax>();
-
-                startDim = (int) startDimNode.literal.intValue().toFloat();
-                endDim = (int) endDimNode.literal.intValue().toFloat();
-
-            } else {
-                cout << "didn't find 2 dimensions" << endl;
-            }
-
-            cout << "dimension: [" << startDim << ":" << endDim << "]" << endl;
-
-            vector<const SyntaxNode *> identNodes;
-            getAllNodes(*portDecNode, SyntaxKind::Declarator, identNodes);
-//            traverseNode(*portDecNode, 0);
-
-            vector<string> identifiers;
-            for (const SyntaxNode *node: identNodes) {
-                auto decl = &node->as<DeclaratorSyntax>();
-                identifiers.push_back(string(decl->name.valueText()));
-                cout << "identifier: " << string(decl->name.valueText()) << endl;
-            }
+            // const PortSymbol* port, string portType, string decType, string direction, int startDim, int endDim
+            auto port = make_unique<Port>(&portSymbol, portType, decType, direction, dimType, dimStart, dimEnd);
 
             // Generate a unique handle
             static int portCounter = 0;
             std::string handleStr = "port" + std::to_string(portCounter++);
 
-            // assemble port instance
-            auto port = make_unique<Port>(portDecNode, portType, direction, netType, dataType, startDim, endDim, identifiers);
-
             // Store the instance in the map
             ports[handleStr] = std::move(port);
 
-            portStrings.push_back(handleStr);
+            portHandles.push_back(handleStr);
 
         }
 
-        return portStrings;
+        return portHandles;
     }
 
 };
@@ -201,36 +169,30 @@ public:
 class Tree {
 public:
 
-    const SyntaxNode* root;
+    shared_ptr<SyntaxTree> tree;
 
-    explicit Tree(const SyntaxNode* root) {
-        this->root = root;
+    explicit Tree(const shared_ptr<SyntaxTree> tree) {
+        this->tree = tree;
     }
 
-    optional<string> getModule(const string& moduleName) {
-        vector<const SyntaxNode*> modNodes;
+    optional<string> getModule(const string& moduleName) const {
 
-        getAllNodes(*this->root, SyntaxKind::ModuleDeclaration, modNodes);
-        if (modNodes.empty()) {
-            cout << "Failed to collect module nodes." << endl;
+        // Use find() without a template argument
+        slang::ast::Compilation compilation;
+        compilation.addSyntaxTree(tree);
+        const auto& root = compilation.getRoot();
+        const auto& myModule = root.find<slang::ast::InstanceSymbol>(moduleName);
+
+        // Check if the symbol exists and is an InstanceSymbol
+        if (!myModule.isModule()) {
+            cout << "Failed to find module with given name." << endl;
+            return nullopt;
         }
 
-        unique_ptr<Module> mod = nullptr;
-        for (const SyntaxNode* node : modNodes) {
-            const auto& moduleDec = node->as<ModuleDeclarationSyntax>();
-            if (moduleDec.header->name.valueText() == moduleName) {
-                mod = make_unique<Module>(moduleName, &moduleDec);
-                break;
-            }
-        }
-
-        // failed to find module with given name
-
-        if (mod == nullptr) return nullopt;
+        auto portList = myModule.body.getPortList();
+        auto mod = make_unique<Module>(moduleName, &myModule);
 
         // Generate a unique handle for this instance
-
-        // Generate a unique handle
         static int modCounter = 0;
         std::string handleStr = "mod" + std::to_string(modCounter++);
 
@@ -241,82 +203,6 @@ public:
     };
 
 };
-
-
-
-/*
-Hi Ben,
-What I would like to have in TCL:
-set tree [slang_parse "file.v"]
-set module [$tree get_module "memory"]
-puts [$module name]
-set ports [$module get_ports]   ; # will return all the ports
-foreach p $ports { puts "port [$p name] [$p direction] [$p width]" }
-*/
-
-void getNode(const SyntaxNode& node, SyntaxKind kind, const SyntaxNode*& searchNode) {
-    // Iterate over children using getChildCount() and childNode()
-    for (size_t i = 0; i < node.getChildCount(); ++i) {
-        // Get the child node
-        const SyntaxNode* child = node.childNode(i);
-
-        // Check if the child is valid and matches the desired kind
-        if (child && (child->kind == kind)) {
-            searchNode = child; // Assign the found node to searchNode
-            return;             // Stop further traversal
-        }
-
-        // Recursive traversal of child nodes
-        if (child) {
-            getNode(*child, kind, searchNode);
-            if (searchNode) {
-                return; // Stop if the desired node has been found
-            }
-        }
-    }
-}
-
-void getAllNodes(const SyntaxNode& node, SyntaxKind kind, std::vector<const SyntaxNode*>& nodes) {
-    // Iterate over children using getChildCount() and childNode()
-    int childCount = node.getChildCount();
-    for (int i = 0; i < childCount; ++i) {
-        // Get the child node
-        const SyntaxNode* child = node.childNode(i);
-
-        if (!child) continue;  // Ensure the child is valid
-        // Check if the child is valid and matches the desired kind
-        if (child->kind == kind) {
-            nodes.push_back(child); // Add the matching node to the vector
-        }
-
-        getAllNodes(*child, kind, nodes);
-    }
-}
-
-// Recursive function to print and traverse SyntaxNode children
-void traverseNode(const SyntaxNode& node, int depth) {
-    // Indentation for hierarchy visualization
-    for (int i = 0; i < depth; ++i) {
-        cout << "  ";
-    }
-
-    // Print node kind
-    cout << "Node Kind: " << toString(node.kind) << endl;
-    for (int i = 0; i < depth; ++i) {
-        cout << "  ";
-    }
-    cout << "Node: " << node.toString() << endl;
-    cout << endl;
-
-    // Iterate over children using getChildCount() and childNode()
-    for (size_t i = 0; i < node.getChildCount(); ++i) {
-        const SyntaxNode* child = node.childNode(i);
-        if (child) {
-            traverseNode(*child, depth + 1); // Recursive traversal
-        }
-    }
-}
-
 
 int SlangParse(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]) {
     if (argc < 2) {
@@ -336,12 +222,9 @@ int SlangParse(ClientData clientData, Tcl_Interp* interp, int argc, const char* 
     }
 
     const auto& syntaxTree = syntaxTreeOpt.value();
-    const SyntaxNode& root = syntaxTree->root();
 
     // Create a new Tree instance
-    auto tree = std::make_unique<Tree>(&root);
-
-//    traverseNode(root, 0);
+    auto tree = std::make_unique<Tree>(syntaxTree);
 
     // Generate a unique handle
     static int treeCounter = 0;
@@ -386,11 +269,11 @@ int Tree_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
 
         std::string moduleName = argv[2];
         auto moduleHandle = tree->getModule(moduleName);
-
         if (moduleHandle == nullopt) {
             Tcl_SetResult(interp, const_cast<char*>("Module not found"), TCL_STATIC);
             return TCL_ERROR;
         }
+        cout << "done2" << endl;
 
         // set module method command
         Tcl_CreateCommand(interp, moduleHandle.value().c_str(), Module_MethodCmd, (ClientData)&modules[moduleHandle.value()], nullptr);
@@ -485,7 +368,7 @@ int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
 
     std::string method = argv[1];
 
-    bool data_method = (method == "portType" || method == "direction" || method == "netType" || method == "dataType" || method == "startDim" || method == "endDim" || method == "identifiers" || method == "string");
+    bool data_method = (method == "portType" || method == "direction" || method == "type" || method == "portType" || method == "dimType" || method == "startDim" || method == "endDim" || method == "name");
 
     if (data_method) {
         if (argc != 2) {
@@ -497,26 +380,17 @@ int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
             Tcl_SetObjResult(interp, Tcl_NewStringObj(port->portType.c_str(), port->portType.length()));
         } else if (method == "direction") {
             Tcl_SetObjResult(interp, Tcl_NewStringObj(port->direction.c_str(), port->direction.length()));
-        } else if (method == "netType") {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(port->netType.c_str(), port->netType.length()));
-        }  else if (method == "dataType") {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(port->dataType.c_str(), port->dataType.length()));
         } else if (method == "startDim") {
             Tcl_SetObjResult(interp, Tcl_NewIntObj(port->startDim));
-        }  else if (method == "endDim") {
+        } else if (method == "endDim") {
             Tcl_SetObjResult(interp, Tcl_NewIntObj(port->endDim));
-        }  else if (method == "identifiers") {
-            const int ident_len = port->identifiers.size();
-            Tcl_Obj* identObjs[ident_len];
-            for (int i=0; i < ident_len; i++) {
-                string ident = port->identifiers[i];
-                identObjs[i] = Tcl_NewStringObj(ident.c_str(), ident.length());
-            }
-
-            Tcl_SetObjResult(interp, Tcl_NewListObj(ident_len, identObjs));
-        } else if (method == "string") {
-            string portString = port->getString();
+        } else if (method == "name") {
+            string portString = string(port->port->name);
             Tcl_SetObjResult(interp, Tcl_NewStringObj(portString.c_str(), portString.length()));
+        } else if (method == "type") {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj(port->decType.c_str(), port->decType.length()));
+        } else if (method == "dimType") {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj(port->dimType.c_str(), port->dimType.length()));
         } else {
             Tcl_SetResult(interp, const_cast<char*>("Invalid data member name used."), TCL_STATIC);
             return TCL_ERROR;
