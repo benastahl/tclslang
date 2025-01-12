@@ -5,7 +5,6 @@
 #include "slang/syntax/SyntaxTree.h"
 #include "slang/syntax/SyntaxNode.h"
 #include <slang/ast/symbols/PortSymbols.h>
-#include <slang/ast/types/DeclaredType.h>
 #include <slang/ast/types/Type.h>
 #include <slang/ast/types/AllTypes.h>
 #include <slang/ast/symbols/CompilationUnitSymbols.h>
@@ -41,16 +40,14 @@ public:
     string direction;
     string decType;
     string dimType;
-    int startDim;
-    int endDim;
+    vector<array<int, 2>> dimensions;
 
-    explicit Port(const PortSymbol* port, string portType, string decType, string direction, string dimType, int startDim, int endDim) {
+    explicit Port(const PortSymbol* port, string portType, string decType, string direction, string dimType, vector<array<int, 2>> dimensions) {
         this->port = port;
         this->portType = std::move(portType);
         this->direction = std::move(direction);
         this->decType = std::move(decType);
-        this->startDim = startDim;
-        this->endDim = endDim;
+        this->dimensions = std::move(dimensions);
         this->dimType = std::move(dimType);
     }
 
@@ -71,9 +68,6 @@ public:
     }
 
     vector<string> getPorts() const {
-
-
-
         vector<string> portHandles;
 
         // Inspect ports
@@ -83,8 +77,7 @@ public:
             string portType;
             string decType;
             string dimType;
-            int dimStart = 0;
-            int dimEnd = 0;
+            vector<array<int, 2>> dimensions;
 
             const auto& portSymbol = portOpt->as<PortSymbol>();
 
@@ -101,54 +94,34 @@ public:
             // Determine if it's wire or reg
             if (portSymbol.isNetPort() || portSymbol.direction == ArgumentDirection::In || portSymbol.direction == ArgumentDirection::InOut) {
                 decType = "wire";
-                std::cout << "Port " << portSymbol.name << " is a wire." << std::endl;
             } else {
                 decType = "reg";
-                std::cout << "Port " << portSymbol.name << " is a reg." << std::endl;
             }
-
-            cout << portSymbol.internalSymbol << endl;
-            cout << "kind: " << portSymbol.internalSymbol->kind << endl;
 
             // Get the port's type and check if it's an array
-            const Type& portTypeNode = portSymbol.getType();
-            if (portTypeNode.isArray()) {
-                const auto &arrayType = portTypeNode.getCanonicalType();
-                if (arrayType.isPackedArray()) {
-                    const auto &dim = arrayType.as<PackedArrayType>();
-                    dimType = "Packed";
-                    dimStart = dim.range.left;
-                    dimEnd = dim.range.right;
-                } else if (arrayType.isUnpackedArray()) {
-                    const auto &dim = arrayType.as<FixedSizeUnpackedArrayType>();
-                    dimType = "Fixed Size Unpacked";
-                    dimStart = dim.range.left;
-                    dimEnd = dim.range.right;
-                } else if (arrayType.isAssociativeArray()) {
-                    const auto &dim = arrayType.as<AssociativeArrayType>();
-                    dimType = "Associative";
-                    cout << "found 'associative' array type. no dimensions." << endl;
-                } else if (arrayType.isDynamicallySizedArray()) {
-                    const auto &dim = arrayType.as<DynamicArrayType>();
-                    dimType = "Dynamic";
-                    cout << "found 'dynamic' array type. no dimensions." << endl;
+            const Type* type = &portSymbol.getType();
+
+            while (type->isArray()) {
+                if (type->isPackedArray()) {
+                    const auto& packedArray = type->getCanonicalType().as<PackedArrayType>();
+                    cout << "  Packed array range: " << packedArray.range.left << " to " << packedArray.range.right << endl;
+                    dimensions.push_back({packedArray.range.left, packedArray.range.right});
+
+                    type = &packedArray.elementType;
+                } else if (type->isUnpackedArray()) {
+                    const auto& unpackedArray = type->getCanonicalType().as<FixedSizeUnpackedArrayType>();
+                    cout << "  Unpacked array range: " << unpackedArray.range.left << " to " << unpackedArray.range.right << endl;
+                    dimensions.push_back({unpackedArray.range.left, unpackedArray.range.right});
+
+                    type = &unpackedArray.elementType;
                 } else {
-                    cout << "unknown dimension type found." << endl;
-                    dimType = "Unknown";
+                    cout << "  Unknown array type." << endl;
+                    break;
                 }
-            } else {
-                cout << "did not find dimensions for " << name << endl;
             }
 
-            cout << "name: " << name << endl;
-            cout << "direction: " << direction << endl;
-            cout << "declared type: " << decType << endl;
-            cout << "port type: " << portType << endl;
-            cout << "dimension type: " << dimType << endl;
-            cout << "dimensions: [" << dimStart << ":" << dimEnd << "]" << endl;
-
             // const PortSymbol* port, string portType, string decType, string direction, int startDim, int endDim
-            auto port = make_unique<Port>(&portSymbol, portType, decType, direction, dimType, dimStart, dimEnd);
+            auto port = make_unique<Port>(&portSymbol, portType, decType, direction, dimType, dimensions);
 
             // Generate a unique handle
             static int portCounter = 0;
@@ -181,13 +154,15 @@ public:
         slang::ast::Compilation compilation;
         compilation.addSyntaxTree(tree);
         const auto& root = compilation.getRoot();
-        const auto& myModule = root.find<slang::ast::InstanceSymbol>(moduleName);
+        const auto& myModuleFind = root.find(moduleName);
 
         // Check if the symbol exists and is an InstanceSymbol
-        if (!myModule.isModule()) {
+        if (!myModuleFind) {
             cout << "Failed to find module with given name." << endl;
             return nullopt;
         }
+
+        const auto& myModule = myModuleFind->as<slang::ast::InstanceSymbol>();
 
         auto portList = myModule.body.getPortList();
         auto mod = make_unique<Module>(moduleName, &myModule);
@@ -271,9 +246,8 @@ int Tree_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
         auto moduleHandle = tree->getModule(moduleName);
         if (moduleHandle == nullopt) {
             Tcl_SetResult(interp, const_cast<char*>("Module not found"), TCL_STATIC);
-            return TCL_ERROR;
+            return TCL_OK;
         }
-        cout << "done2" << endl;
 
         // set module method command
         Tcl_CreateCommand(interp, moduleHandle.value().c_str(), Module_MethodCmd, (ClientData)&modules[moduleHandle.value()], nullptr);
@@ -330,8 +304,6 @@ int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const 
         Tcl_Obj* portsObjForm[ports_size];
         for (int i=0; i < ports_size; i++) {
             const string portHandle = portHandles[i];
-            cout << "got port handle: " << portHandle << endl;
-            cout << "port type: " << ports[portHandle]->portType << endl;
             portsObjForm[i] = Tcl_NewStringObj(portHandle.c_str(), portHandle.length());
 
             Tcl_CreateCommand(interp, portHandle.c_str(), Port_MethodCmd, (ClientData)&ports[portHandle], nullptr);
@@ -368,7 +340,7 @@ int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
 
     std::string method = argv[1];
 
-    bool data_method = (method == "portType" || method == "direction" || method == "type" || method == "portType" || method == "dimType" || method == "startDim" || method == "endDim" || method == "name");
+    bool data_method = (method == "portType" || method == "direction" || method == "type" || method == "portType" || method == "dimType" || method == "dimensions" || method == "name");
 
     if (data_method) {
         if (argc != 2) {
@@ -380,10 +352,22 @@ int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
             Tcl_SetObjResult(interp, Tcl_NewStringObj(port->portType.c_str(), port->portType.length()));
         } else if (method == "direction") {
             Tcl_SetObjResult(interp, Tcl_NewStringObj(port->direction.c_str(), port->direction.length()));
-        } else if (method == "startDim") {
-            Tcl_SetObjResult(interp, Tcl_NewIntObj(port->startDim));
-        } else if (method == "endDim") {
-            Tcl_SetObjResult(interp, Tcl_NewIntObj(port->endDim));
+        } else if (method == "dimensions") {
+            const unsigned int dimCount = (const unsigned int)port->dimensions.size();
+
+            Tcl_Obj* dims[dimCount];
+
+            unsigned int nDim = 0;
+            for (array<int, 2> dim : port->dimensions) {
+                Tcl_Obj* dimRange[2] = {Tcl_NewIntObj(dim[0]), Tcl_NewIntObj(dim[1])};
+
+                Tcl_Obj* obj = Tcl_NewListObj(2, dimRange);
+                dims[nDim] = obj;
+                nDim++;
+            }
+
+
+            Tcl_SetObjResult(interp, Tcl_NewListObj(dimCount, dims));
         } else if (method == "name") {
             string portString = string(port->port->name);
             Tcl_SetObjResult(interp, Tcl_NewStringObj(portString.c_str(), portString.length()));
@@ -404,7 +388,7 @@ int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
 }
 
 // Initialization function required by Tcl
-extern "C" int Tclslang_Init(Tcl_Interp* interp) {
+extern "C" [[maybe_unused]] int Tclslang_Init(Tcl_Interp* interp) {
     // Check Tcl version compatibility
     if (Tcl_InitStubs(interp, "8.1", 0) == nullptr) {
         return TCL_ERROR;
