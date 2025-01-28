@@ -24,13 +24,20 @@ using namespace std;
 int Tree_MethodCmd(ClientData clientData, Tcl_Interp *interp, int argc, const char *argv[]);
 int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
 int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
+int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
 class Port;
 class Module;
 class Tree;
+class Cell;
 
 unordered_map<std::string, std::unique_ptr<Port>> ports;
 unordered_map<std::string, std::unique_ptr<Module>> modules;
 unordered_map<std::string, std::unique_ptr<Tree>> trees;
+unordered_map<std::string, std::unique_ptr<Cell>> cells;
+
+class Cell {
+
+};
 
 class Port {
 public:
@@ -56,22 +63,22 @@ public:
 class Module {
 public:
     string name;
-    const InstanceSymbol* moduleDec = nullptr;
+    const InstanceSymbol* moduleInstanceSymbol = nullptr;
 
-    explicit Module(const string& name, const InstanceSymbol* moduleDec) {
+    explicit Module(const string& name, const InstanceSymbol* moduleInstanceSymbol) {
         this->name = name;
-        this->moduleDec = moduleDec;
+        this->moduleInstanceSymbol = moduleInstanceSymbol;
     }
 
     string getHeaderName() const {
-        return string(this->moduleDec->name);
+        return string(this->moduleInstanceSymbol->name);
     }
 
     vector<string> getPorts() const {
         vector<string> portHandles;
 
         // Inspect ports
-        for (const auto& portOpt : moduleDec->body.getPortList()) {
+        for (const auto& portOpt : moduleInstanceSymbol->body.getPortList()) {
             string name;
             string direction;
             string portType;
@@ -137,6 +144,30 @@ public:
         return portHandles;
     }
 
+    vector<string> getCells() const {
+        vector<string> cellHandles;
+        cout << moduleInstanceSymbol->name << endl;
+        if (moduleInstanceSymbol->getPortConnections().empty()) {
+            std::cout << "No port connections found for instance: " << moduleInstanceSymbol->name << std::endl;
+        }
+
+        cout << "got to cells func" << endl;
+        for (const auto& portConn : this->moduleInstanceSymbol->getPortConnections()) {
+            const auto& port = portConn->port;
+            const auto* expr = portConn->getExpression();
+            cout << "inside!" << endl;
+            std::cout << "Port: " << port.name << " -> ";
+            if (expr) {
+                std::cout << "Connected to: " << expr << std::endl;
+            } else {
+                std::cout << "Unconnected" << std::endl;
+            }
+        }
+
+        return cellHandles;
+
+    }
+
 };
 
 class Tree {
@@ -154,17 +185,40 @@ public:
         slang::ast::Compilation compilation;
         compilation.addSyntaxTree(tree);
         const auto& root = compilation.getRoot();
-        const auto& myModuleFind = root.find(moduleName);
+        const auto& myModuleFind = root.lookupName<slang::ast::InstanceSymbol>(moduleName);
 
         // Check if the symbol exists and is an InstanceSymbol
-        if (!myModuleFind) {
+        if (!myModuleFind.isModule()) {
             cout << "Failed to find module with given name." << endl;
             return nullopt;
         }
 
-        const auto& myModule = myModuleFind->as<slang::ast::InstanceSymbol>();
+        const auto& myModule = myModuleFind.as<slang::ast::InstanceSymbol>();
+
+        for (const auto& member : myModule.body.members()) {
+            // Check if the member is an Instance
+            if (member.kind == slang::ast::SymbolKind::Instance) {
+                const auto& instance = member.as<slang::ast::InstanceSymbol>();
+                std::cout << "Instance: " << instance.name
+                          << ", Type: " << instance.getDefinition().name << "\n";
+
+                for (const auto& portConnection : instance.getPortConnections()) {
+                    const auto& port = portConnection->port; // Port symbol
+                    const auto* connection = portConnection->getExpression(); // Port connection
+
+                    std::cout << "Port: " << port.name
+                              << ", Signal: " << (connection ? connection : "unconnected") << "\n";
+                }
+            } else {
+                // For non-instance members, output their kind for debugging
+                std::cout << "'" << member.name << "' is of kind "
+                          << slang::ast::toString(member.kind) << "\n";
+            }
+        }
 
         auto portList = myModule.body.getPortList();
+
+        auto cellList = myModule.getPortConnections();
         auto mod = make_unique<Module>(moduleName, &myModule);
 
         // Generate a unique handle for this instance
@@ -314,6 +368,28 @@ int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const 
 
         Tcl_SetObjResult(interp, Tcl_NewListObj(ports_size, portsObjForm));
         return TCL_OK;
+    } else if (method == "get_cells") {
+        if (argc != 2) {
+            Tcl_SetResult(interp, const_cast<char*>("Usage: <module_name> get_cells"), TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        // collect cells
+        vector<string> cellHandles = module->getCells();
+
+        // convert cells to Tcl_StringObj
+        const unsigned int cells_size = cellHandles.size();
+        Tcl_Obj* cellsObjForm[cells_size];
+        for (int i=0; i < cells_size; i++) {
+            const string cellHandle = cellHandles[i];
+            cellsObjForm[i] = Tcl_NewStringObj(cellHandle.c_str(), cellHandle.length());
+
+            Tcl_CreateCommand(interp, cellHandle.c_str(), Cell_MethodCmd, (ClientData)&cells[cellHandle], nullptr);
+
+        }
+
+        Tcl_SetObjResult(interp, Tcl_NewListObj(cells_size, cellsObjForm));
+        return TCL_OK;
     }
 
     Tcl_SetResult(interp, const_cast<char*>("Unknown method"), TCL_STATIC);
@@ -382,6 +458,34 @@ int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
 
         return TCL_OK;
     }
+
+    Tcl_SetResult(interp, const_cast<char*>("Unknown method"), TCL_STATIC);
+    return TCL_ERROR;
+}
+
+int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]) {
+    if (argc < 2) {
+        Tcl_SetResult(interp, const_cast<char *>("Usage: <cell_name> <method> [args...]"), TCL_STATIC);
+        return TCL_ERROR;
+    }
+
+    // Get the handle name (e.g., "module0")
+    std::string handle = argv[0];
+
+    // Find the corresponding Module instance
+    auto it = cells.find(handle);
+    if (it == cells.end()) {
+        Tcl_SetResult(interp, const_cast<char *>("Invalid cell handle"), TCL_STATIC);
+        return TCL_ERROR;
+    }
+
+    auto &cell = it->second;
+    // handle method called
+    std::string method = argv[1];
+    if (method == "") {
+
+    }
+
 
     Tcl_SetResult(interp, const_cast<char*>("Unknown method"), TCL_STATIC);
     return TCL_ERROR;
