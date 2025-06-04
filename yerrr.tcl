@@ -16,7 +16,7 @@ foreach file $files {
     puts "==============================="
 
     set tree [slang_parse $file]
-    set module [$tree get_module "top"]
+    set module [$tree get_module top]
     if {$module eq ""} {  # checks for null if module name not found
         continue
     }
