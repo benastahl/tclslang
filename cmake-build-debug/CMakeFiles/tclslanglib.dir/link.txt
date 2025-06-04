@@ -1,1 +1,0 @@
-/usr/bin/c++ -fPIC -g -shared -Wl,-soname,libtclslanglib.so -o libtclslanglib.so CMakeFiles/tclslanglib.dir/tclslang.cpp.o  /usr/local/lib64/libsvlang.a /usr/lib64/libtcl.so /usr/local/lib64/libfmt.a /usr/local/lib64/libmimalloc.a -lpthread -lrt -latomic

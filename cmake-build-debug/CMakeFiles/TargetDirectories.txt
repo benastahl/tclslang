@@ -1,3 +1,0 @@
-/home/ec2-user/projects/tclslang/cmake-build-debug/CMakeFiles/tclslang.dir
-/home/ec2-user/projects/tclslang/cmake-build-debug/CMakeFiles/edit_cache.dir
-/home/ec2-user/projects/tclslang/cmake-build-debug/CMakeFiles/rebuild_cache.dir
