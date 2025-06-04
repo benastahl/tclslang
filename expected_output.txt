@@ -1,0 +1,47 @@
+tree0
+mod0
+mod1
+memory
+memory2
+
+module1 ports!
+port0 port1 port2
+full port string: 
+  input wire [7:0] address, data_in;
+port net input wire
+dimension: 7:0
+
+identifiers:
+address
+data_in
+--------------------------
+full port string: 
+  output reg [7:0] data_out;
+port var output reg
+dimension: 7:0
+
+identifiers:
+data_out
+--------------------------
+full port string: 
+  input wire read_write, chip_en;
+port net input wire
+dimension: 0:0
+
+identifiers:
+read_write
+chip_en
+--------------------------
+
+
+module2 ports!
+port3
+full port string: 
+  input wire [100:150] address, super_cool_chip;
+port net input wire
+dimension: 100:150
+
+identifiers:
+address
+super_cool_chip
+--------------------------

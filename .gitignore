@@ -1,0 +1,28 @@
+./slang
+./build
+./cmake-build-debug
+
+# Compiled object files
+*.o
+
+# Compiled binary files
+*.out
+*.exe
+
+# Backup files
+*~
+
+# Temporary files
+*.tmp
+
+# Git directories
+.git/
+
+# IDE specific (optional)
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+

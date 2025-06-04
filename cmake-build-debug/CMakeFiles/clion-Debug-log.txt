@@ -1,0 +1,4 @@
+/home/ec2-user/.cache/JetBrains/RemoteDev/dist/7c26c46eeb42c_CLion-242.20224.214/bin/cmake/linux/x64/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "Unix Makefiles" -S /home/ec2-user/projects/tclslang -B /home/ec2-user/projects/tclslang/cmake-build-debug
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/ec2-user/projects/tclslang/cmake-build-debug
