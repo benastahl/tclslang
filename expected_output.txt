@@ -1,47 +1,557 @@
-tree0
-mod0
-mod1
-memory
-memory2
-
-module1 ports!
-port0 port1 port2
-full port string: 
-  input wire [7:0] address, data_in;
-port net input wire
-dimension: 7:0
-
-identifiers:
-address
-data_in
+[ec2-user@ip-172-31-16-169 tclslang]$ make clean; make build TCL_SCRIPT_PATH=./yerrr.tcl;
+rm -rf build
+make clean
+make[1]: Entering directory '/home/ec2-user/projects/tclslang'
+rm -rf build
+make[1]: Leaving directory '/home/ec2-user/projects/tclslang'
+cmake -B build -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+-- The C compiler identification is GNU 11.5.0
+-- The CXX compiler identification is GNU 11.5.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found PkgConfig: /usr/bin/pkg-config (found version "1.7.3")
+-- Checking for module 'tcl'
+--   Found tcl, version 8.6.10
+-- Configuring done (0.6s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/ec2-user/projects/tclslang/build
+cmake --build build -j
+gmake[1]: Entering directory '/home/ec2-user/projects/tclslang/build'
+gmake[2]: Entering directory '/home/ec2-user/projects/tclslang/build'
+gmake[3]: Entering directory '/home/ec2-user/projects/tclslang/build'
+gmake[3]: Leaving directory '/home/ec2-user/projects/tclslang/build'
+gmake[3]: Entering directory '/home/ec2-user/projects/tclslang/build'
+[ 50%] Building CXX object CMakeFiles/tclslang.dir/src/tclslang.cpp.o
+[100%] Linking CXX shared library libtclslang.so
+gmake[3]: Leaving directory '/home/ec2-user/projects/tclslang/build'
+[100%] Built target tclslang
+gmake[2]: Leaving directory '/home/ec2-user/projects/tclslang/build'
+gmake[1]: Leaving directory '/home/ec2-user/projects/tclslang/build'
+tclsh ./yerrr.tcl
+===============================
+Parsing file: ./verilog_tests/test.sv
+===============================
+InstanceSymbol:
+        Name: top
+        Kind: Instance
+        Port List: address data_in data_out read_write chip_en
+        Port Connections:
+got instance: top of type Instance
+Port Name: address
+  Packed array range: 7 to 0
+Port Name: data_in
+  Packed array range: 7 to 0
+Port Name: data_out
+  Packed array range: 7 to 0
+Port Name: read_write
+Port Name: chip_en
+ports: port0 port1 port2 port3 port4
+port name: address
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension: {7 0}
 --------------------------
-full port string: 
-  output reg [7:0] data_out;
-port var output reg
-dimension: 7:0
-
-identifiers:
-data_out
+port name: data_in
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension: {7 0}
 --------------------------
-full port string: 
-  input wire read_write, chip_en;
-port net input wire
-dimension: 0:0
+port name: data_out
+port type: Variable
+port direction: Out
+port declared type: reg
+port dimension type:
+dimension: {7 0}
+--------------------------
+port name: read_write
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+port name: chip_en
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+cells:
 
-identifiers:
-read_write
-chip_en
+
+
+===============================
+Parsing file: ./verilog_tests/test2.sv
+===============================
+InstanceSymbol:
+        Name: top
+        Kind: Instance
+        Port List: address data_in data_out read_write chip_en
+        Port Connections:
+got instance: top of type Instance
+Port Name: address
+  Packed array range: 100 to 150
+Internal symbol is null
+Internal symbol is null
+Internal symbol is null
+Internal symbol is null
+ports: port5
+port name: address
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension: {100 150}
+--------------------------
+cells:
+
+
+
+===============================
+Parsing file: ./verilog_tests/test3.v
+===============================
+InstanceSymbol:
+        Name: top
+        Kind: Instance
+        Port List: i_select  i_clk1 o_clk
+        Port Connections:
+got instance: top of type Instance
+Port Name: i_select
+  Packed array range: 7 to 9
+Port Name:
+Port Name: i_clk1
+Port Name: o_clk
+ports: port6 port7 port8 port9
+port name: i_select
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension: {7 9}
+--------------------------
+port name:
+port type: Variable
+port direction: In
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+port name: i_clk1
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+port name: o_clk
+port type: Net
+port direction: Out
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+cells:
+
+
+
+===============================
+Parsing file: ./verilog_tests/test4.v
+===============================
+InstanceSymbol:
+        Name: top
+        Kind: Instance
+        Port List:
+        Port Connections:
+        InstanceSymbol:
+                Name: u_top
+                Kind: Instance
+                Port List: foo_port
+                Port Connections: (foo_port -> top_signal)
+                InstanceSymbol:
+                        Name: u_foo1
+                        Kind: Instance
+                        Port List: foo_port
+                        Port Connections: (foo_port -> my_signal)
+                InstanceSymbol:
+                        Name: u_foo2
+                        Kind: Instance
+                        Port List: foo_port
+                        Port Connections: (foo_port -> my_signal)
+        InstanceSymbol:
+                Name: u_top2
+                Kind: Instance
+                Port List: foo_port
+                Port Connections: (foo_port -> unconnected)
+                InstanceSymbol:
+                        Name: u_foo1
+                        Kind: Instance
+                        Port List: foo_port
+                        Port Connections: (foo_port -> my_signal)
+                InstanceSymbol:
+                        Name: u_foo2
+                        Kind: Instance
+                        Port List: foo_port
+                        Port Connections: (foo_port -> my_signal)
+got instance: top of type Instance
+ports:
+cells: cell0 cell1
+cell name: u_top
+got port foo_port of kind Port
+Port Name: foo_port
+[Note] Getting driver...
+   conn name: foo_port
+   conn port: port10
+   port name: foo_port
+   port type: Variable
+   port direction: In
+   port declared type: wire
+   port dimension type:
+   dimension:
+
+   conn driver: driver0
+   driver name: top_signal
+   driver type: var
+   driver data_type: logic
+  ----------------------------
+--------------------------
+cell name: u_top2
+got port foo_port of kind Port
+Port Name: foo_port
+[Note] Getting driver...
+[Warning] No driver expression connected to port.
+   conn name: foo_port
+   conn port: port11
+   port name: foo_port
+   port type: Variable
+   port direction: In
+   port declared type: wire
+   port dimension type:
+   dimension:
+
+   conn driver:
 --------------------------
 
 
-module2 ports!
-port3
-full port string: 
-  input wire [100:150] address, super_cool_chip;
-port net input wire
-dimension: 100:150
 
-identifiers:
-address
-super_cool_chip
+===============================
+Parsing file: ./verilog_tests/test5.v
+===============================
+InstanceSymbol:
+        Name: top
+        Kind: Instance
+        Port List: clk data_in data_out bidir_signal addr flag status i_select hello_there_haha
+        Port Connections:
+got instance: top of type Instance
+Port Name: clk
+Port Name: data_in
+  Packed array range: 7 to 0
+Port Name: data_out
+  Packed array range: 3 to 0
+Port Name: bidir_signal
+Port Name: addr
+  Unpacked array range: 0 to 15
+  Packed array range: 3 to 0
+Port Name: flag
+Port Name: status
+  Unpacked array range: 0 to 3
+  Packed array range: 1 to 0
+Port Name: i_select
+  Packed array range: 7 to 9
+Port Name: hello_there_haha
+  Packed array range: 7 to 9
+ports: port12 port13 port14 port15 port16 port17 port18 port19 port20
+port name: clk
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+port name: data_in
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension: {7 0}
+--------------------------
+port name: data_out
+port type: Variable
+port direction: Out
+port declared type: reg
+port dimension type:
+dimension: {3 0}
+--------------------------
+port name: bidir_signal
+port type: Net
+port direction: InOut
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+port name: addr
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension: {0 15} {3 0}
+--------------------------
+port name: flag
+port type: Net
+port direction: Out
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+port name: status
+port type: Net
+port direction: Out
+port declared type: wire
+port dimension type:
+dimension: {0 3} {1 0}
+--------------------------
+port name: i_select
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension: {7 9}
+--------------------------
+port name: hello_there_haha
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension: {7 9}
+--------------------------
+cells:
+
+
+
+===============================
+Parsing file: ./verilog_tests/test6.v
+===============================
+Failed to find module with given name.
+Module name not found: "top"
+===============================
+Parsing file: ./verilog_tests/test7.v
+===============================
+InstanceSymbol:
+        Name: top
+        Kind: Instance
+        Port List: in_var in_net out_var
+        Port Connections:
+        InstanceSymbol:
+                Name: ifc_inst
+                Kind: Instance
+                Port List:
+                Port Connections:
+        InstanceSymbol:
+                Name: u1
+                Kind: Instance
+                Port List: a
+                Port Connections: (a -> in_var)
+        InstanceSymbol:
+                Name: u2
+                Kind: Instance
+                Port List: a
+                Port Connections: (a -> in_net)
+        InstanceSymbol:
+                Name: u3
+                Kind: Instance
+                Port List: a
+                Port Connections: (a -> wire_signal)
+        InstanceSymbol:
+                Name: u4
+                Kind: Instance
+                Port List: a
+                Port Connections: (a -> logic_signal)
+        InstanceSymbol:
+                Name: u5
+                Kind: Instance
+                Port List: a
+                Port Connections: (a -> unresolved)
+        InstanceSymbol:
+                Name: u6
+                Kind: Instance
+                Port List: a
+                Port Connections: (a -> WIDTH)
+        InstanceSymbol:
+                Name: u7
+                Kind: Instance
+                Port List: a
+                Port Connections: (a -> sig)
+got instance: top of type Instance
+Port Name: in_var
+Port Name: in_net
+Port Name: out_var
+ports: port21 port22 port23
+port name: in_var
+port type: Variable
+port direction: In
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+port name: in_net
+port type: Net
+port direction: In
+port declared type: wire
+port dimension type:
+dimension:
+--------------------------
+port name: out_var
+port type: Variable
+port direction: Out
+port declared type: reg
+port dimension type:
+dimension:
+--------------------------
+cells: cell2 cell3 cell4 cell5 cell6 cell7 cell8 cell9
+cell name: ifc_inst
+--------------------------
+cell name: u1
+got port a of kind Port
+Port Name: a
+[Note] Getting driver...
+   conn name: a
+   conn port: port24
+   port name: a
+   port type: Variable
+   port direction: In
+   port declared type: wire
+   port dimension type:
+   dimension:
+
+   conn driver: driver1
+   driver name: in_var
+   driver type: var
+   driver data_type: logic
+  ----------------------------
+--------------------------
+cell name: u2
+got port a of kind Port
+Port Name: a
+[Note] Getting driver...
+   conn name: a
+   conn port: port25
+   port name: a
+   port type: Variable
+   port direction: In
+   port declared type: wire
+   port dimension type:
+   dimension:
+
+   conn driver: driver2
+   driver name: in_net
+   driver type: in_net
+   driver data_type: logic
+   driver net_type: wire
+  ----------------------------
+--------------------------
+cell name: u3
+got port a of kind Port
+Port Name: a
+[Note] Getting driver...
+   conn name: a
+   conn port: port26
+   port name: a
+   port type: Variable
+   port direction: In
+   port declared type: wire
+   port dimension type:
+   dimension:
+
+   conn driver: driver3
+   driver name: wire_signal
+   driver type: wire_signal
+   driver data_type: logic
+   driver net_type: wire
+  ----------------------------
+--------------------------
+cell name: u4
+got port a of kind Port
+Port Name: a
+[Note] Getting driver...
+   conn name: a
+   conn port: port27
+   port name: a
+   port type: Variable
+   port direction: In
+   port declared type: wire
+   port dimension type:
+   dimension:
+
+   conn driver: driver4
+   driver name: logic_signal
+   driver type: var
+   driver data_type: logic
+  ----------------------------
+--------------------------
+cell name: u5
+got port a of kind Port
+Port Name: a
+[Note] Getting driver...
+   conn name: a
+   conn port: port28
+   port name: a
+   port type: Variable
+   port direction: In
+   port declared type: wire
+   port dimension type:
+   dimension:
+
+   conn driver: driver5
+   driver name:
+   const: 1'b1
+  ----------------------------
+--------------------------
+cell name: u6
+got port a of kind Port
+Port Name: a
+[Note] Getting driver...
+   conn name: a
+   conn port: port29
+   port name: a
+   port type: Variable
+   port direction: In
+   port declared type: wire
+   port dimension type:
+   dimension:
+
+   conn driver: driver6
+   driver name:
+   const: 1'b1
+  ----------------------------
+--------------------------
+cell name: u7
+got port a of kind Port
+Port Name: a
+[Note] Getting driver...
+   conn name: a
+   conn port: port30
+   port name: a
+   port type: Variable
+   port direction: In
+   port declared type: wire
+   port dimension type:
+   dimension:
+
+   conn driver: driver7
+   driver name: sig
+   driver type: var
+   driver data_type: logic
+  ----------------------------
 --------------------------
