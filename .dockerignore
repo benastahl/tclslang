@@ -1,0 +1,7 @@
+.git
+build/
+cmake-build-debug/
+slang/
+.idea/
+.vscode/
+.DS_Store

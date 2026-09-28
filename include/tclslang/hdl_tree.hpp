@@ -349,16 +349,19 @@ class Tree {
 public:
 
     shared_ptr<SyntaxTree> tree;
+    // Owns every Symbol that Module/Port/Cell/Driver handles point into, so it
+    // must live as long as the Tree.
+    unique_ptr<slang::ast::Compilation> compilation;
 
     explicit Tree(const shared_ptr<SyntaxTree> tree) {
         this->tree = tree;
+        compilation = make_unique<slang::ast::Compilation>();
+        compilation->addSyntaxTree(tree);
     }
 
     optional<string> getModule(const string& moduleName) const {
 
-        slang::ast::Compilation compilation;
-        compilation.addSyntaxTree(tree);
-        const auto& root = compilation.getRoot();
+        const auto& root = compilation->getRoot();
 
         // find topmost module instance
         const Symbol *myModuleFind = root.find(moduleName);
