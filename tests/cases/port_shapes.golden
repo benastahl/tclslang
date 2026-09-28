@@ -1,11 +1,11 @@
-module top
-  port clk In Net
-  port data_in In Net dims={7 0}
-  port data_out Out Variable dims={3 0}
-  port bidir_signal InOut Net
-  port addr In Net dims={0 15} {3 0}
-  port flag Out Net
-  port status Out Net dims={0 3} {1 0}
-  port i_select In Net dims={7 9}
-  port packed_2d In Variable dims={3 0} {7 0}
-  port sval Out Variable dims={15 0}
+module top (top)
+  port clk input net : logic (wire) width=1
+  port data_in input net : logic[7:0] (wire) width=8 dims={7 0}
+  port data_out output var : reg[3:0] width=4 dims={3 0}
+  port bidir_signal inout net : logic (wire) width=1
+  port addr input net : logic[3:0]$[0:15] (wire) width=64 dims={0 15} {3 0}
+  port flag output net : logic (wire) width=1
+  port status output net : logic[1:0]$[0:3] (wire) width=8 dims={0 3} {1 0}
+  port i_select input net : logic[7:9] (wire) width=3 dims={7 9}
+  port packed_2d input var : logic[3:0][7:0] width=32 dims={3 0} {7 0}
+  port sval output var : logic signed[15:0] width=16 dims={15 0}

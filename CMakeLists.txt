@@ -101,4 +101,10 @@ if(TCLSLANG_BUILD_TESTS)
     add_test(NAME api
              COMMAND ${TCLSH} ${TEST_DIR}/api.test $<TARGET_FILE:tclslang>)
     set_tests_properties(api PROPERTIES ENVIRONMENT "${TCLSLANG_TEST_ENV}")
+
+    # Smoke test: the example must keep working as the API evolves.
+    add_test(NAME example.dump_hierarchy
+             COMMAND ${TCLSH} ${CMAKE_CURRENT_SOURCE_DIR}/examples/dump_hierarchy.tcl)
+    set_tests_properties(example.dump_hierarchy PROPERTIES
+                         ENVIRONMENT "${TCLSLANG_TEST_ENV};TCLSLANG_LIB=$<TARGET_FILE:tclslang>")
 endif()

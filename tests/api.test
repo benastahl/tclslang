@@ -51,6 +51,16 @@ test module-1.1a {an unknown module is an error} -body {
     [parse memory_nonansi.sv] get_module nope
 } -returnCodes error -result {module "nope" not found}
 
+test module-1.3 {get_module finds modules below the top, and reports the instance path} -body {
+    set tree [parse nested_top.v]
+    set mod [$tree get_module adder]
+    list [$mod name] [$mod hier_path] [lmap c [[$tree get_module system] get_cells] {$c ref_name}]
+} -result {adder system.top_instance.my_adder top}
+
+test module-1.4 {top_modules lists the design roots} -body {
+    [parse nested_top.v] top_modules
+} -result system
+
 test module-1.2 {ports come back in declaration order} -body {
     set mod [[parse memory_nonansi.sv] get_module top]
     lmap p [$mod get_ports] {$p name}
@@ -61,14 +71,51 @@ test port-1.1 {packed dimensions} -body {
     [lindex [$mod get_ports] 0] dimensions
 } -result {{7 0}}
 
-# --- cells and connections --------------------------------------------------
-
 proc cell_named {mod name} {
     foreach c [$mod get_cells] {
         if {[$c name] eq $name} { return $c }
     }
     error "no cell $name"
 }
+
+proc port_named {inst name} {
+    foreach p [$inst get_ports] {
+        if {[$p name] eq $name} { return $p }
+    }
+    error "no port $name"
+}
+
+proc describe {p} {
+    list [$p direction] [$p kind] [$p data_type] [$p net_type] [$p width]
+}
+
+test port-2.1 {net and variable ports report slang's types} -body {
+    set mod [[parse port_shapes.sv] get_module top]
+    lmap name {clk data_in data_out bidir_signal packed_2d sval} {
+        describe [port_named $mod $name]
+    }
+} -result {{input net logic wire 1} {input net {logic[7:0]} wire 8} {output var {reg[3:0]} {} 4} {inout net logic wire 1} {input var {logic[3:0][7:0]} {} 32} {output var {logic signed[15:0]} {} 16}}
+
+test port-2.2 {input logic is a variable, not a wire} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    lmap p [$mod get_ports] {list [$p name] [$p kind] [$p net_type]}
+} -result {{in_var var {}} {in_net net wire} {out_var var {}}}
+
+test port-2.3 {unpacked dimensions come first, and width counts every element} -body {
+    set p [port_named [[parse port_shapes.sv] get_module top] addr]
+    list [$p dimensions] [$p width]
+} -result {{{0 15} {3 0}} 64}
+
+test port-2.4 {interface ports report the interface and modport} -body {
+    set mod [[parse interface_port.sv] get_module top]
+    set prod [cell_named $mod u_prod]
+    set cons [cell_named $mod u_cons]
+    lmap p [list [port_named $prod bus] [port_named $cons bus]] {
+        list [$p kind] [$p interface] [$p modport] [$p direction]
+    }
+} -result {{interface bus_if master {}} {interface bus_if {} {}}}
+
+# --- cells and connections --------------------------------------------------
 
 test cell-1.1 {cells of a module, including interface instances} -body {
     set mod [[parse driver_kinds.v] get_module top]
@@ -79,7 +126,7 @@ test conn-1.1 {constant driver} -body {
     set mod [[parse driver_kinds.v] get_module top]
     set c [cell_named $mod u5]
     set d [[lindex [$c get_connections] 0] get_driver]
-    list [$d type] [$d const]
+    list [$d kind] [$d const]
 } -result {const 1'b1}
 
 test conn-1.2 {an unconnected port has no driver and creates no command} -body {
@@ -91,7 +138,7 @@ test conn-1.2 {an unconnected port has no driver and creates no command} -body {
 test conn-1.3 {an expression driver has no name but reports its text and type} -body {
     set mod [[parse expr_connections.sv] get_module top]
     set d [[lindex [[cell_named $mod u_concat] get_connections] 0] get_driver]
-    list [$d type] [$d name] [$d expr] [$d data_type]
+    list [$d kind] [$d name] [$d expr] [$d data_type]
 } -result {expr {} {{x, z}} {logic[1:0]}}
 
 test cell-1.2 {instances inside generate blocks and arrays are cells} -body {
@@ -99,10 +146,15 @@ test cell-1.2 {instances inside generate blocks and arrays are cells} -body {
     lmap c [$mod get_cells] {$c name}
 } -result {{u_array[0]} {u_array[1]} {g_loop[0].u_gen} {g_loop[1].u_gen} g_if.u_cond}
 
+test cell-1.3 {cells know their module and full path} -body {
+    set mod [[parse generate_and_arrays.sv] get_module top]
+    lmap c [$mod get_cells] {list [$c ref_name] [$c hier_path]}
+} -result {{cell_a {top.u_array[0]}} {cell_a {top.u_array[1]}} {cell_a {top.g_loop[0].u_gen}} {cell_a {top.g_loop[1].u_gen}} {cell_a top.g_if.u_cond}}
+
 test conn-1.4 {interface port connections report the interface and modport} -body {
     set mod [[parse interface_port.sv] get_module top]
     set d [[lindex [[cell_named $mod u_cons] get_connections] 0] get_driver]
-    list [$d type] [$d name] [$d modport]
+    list [$d kind] [$d name] [$d modport]
 } -result {interface the_bus slave}
 
 # --- handle lifecycle ---------------------------------------------------------

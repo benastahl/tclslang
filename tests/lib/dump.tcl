@@ -9,7 +9,7 @@ proc dump::driver {d} {
     if {$d eq ""} {
         return "unconnected"
     }
-    switch -- [$d type] {
+    switch -- [$d kind] {
         const     { set desc "const [$d const]" }
         var       { set desc "var [$d name] : [$d data_type]" }
         net       { set desc "net [$d name] : [$d data_type] ([$d net_type])" }
@@ -19,12 +19,12 @@ proc dump::driver {d} {
             if {[$d modport] ne ""} { append desc " modport [$d modport]" }
             return $desc
         }
-        default   { error "unknown driver type [$d type]" }
+        default   { error "unknown driver kind [$d kind]" }
     }
     # Show the connection text when it is more than the bare name/value,
     # e.g. a select (bus[3:2]) or hierarchical reference (ifc.sig).
     set text [$d expr]
-    set plain [expr {[$d type] eq "const" ? [$d const] : [$d name]}]
+    set plain [expr {[$d kind] eq "const" ? [$d const] : [$d name]}]
     if {$text ne $plain} {
         append desc " via {$text}"
     }
@@ -32,19 +32,24 @@ proc dump::driver {d} {
 }
 
 proc dump::port {p} {
-    set line [join [concat port [$p name] [$p direction] [$p portType]]]
-    if {[llength [$p dimensions]]} {
-        append line " dims=[$p dimensions]"
+    if {[$p kind] eq "interface"} {
+        set line "port [$p name] interface [$p interface]"
+        if {[$p modport] ne ""} { append line ".[$p modport]" }
+        return $line
     }
+    set line "port [$p name] [$p direction] [$p kind] : [$p data_type]"
+    if {[$p net_type] ne ""} { append line " ([$p net_type])" }
+    append line " width=[$p width]"
+    if {[llength [$p dimensions]]} { append line " dims=[$p dimensions]" }
     return $line
 }
 
 proc dump::cell {c indent} {
     set pad [string repeat "  " $indent]
-    set out "${pad}cell [$c name]\n"
+    set out "${pad}cell [$c name] : [$c ref_name]\n"
     foreach conn [$c get_connections] {
         set p [$conn get_port]
-        set dir [expr {[$p direction] ne "" ? [$p direction] : [$p portType]}]
+        set dir [expr {[$p direction] ne "" ? [$p direction] : [$p kind]}]
         append out "${pad}  conn [$conn name] ($dir) <- [dump::driver [$conn get_driver]]\n"
     }
     foreach child [$c get_cells] {
@@ -58,11 +63,10 @@ proc dump::design {files {top top}} {
     if {[catch {slang_parse {*}$files} tree]} {
         return "error: $tree\n"
     }
-    set mod [$tree get_module $top]
-    if {$mod eq ""} {
-        return "error: module \"$top\" not found\n"
+    if {[catch {$tree get_module $top} mod]} {
+        return "error: $mod\n"
     }
-    set out "module [$mod name]\n"
+    set out "module [$mod name] ([$mod hier_path])\n"
     foreach p [$mod get_ports] {
         append out "  [dump::port $p]\n"
     }

@@ -55,6 +55,28 @@ std::string hierPath(const Symbol& symbol) {
 
 // Collects the instances directly below `scope`, looking through generate
 // blocks and instance arrays but not into other instances' bodies.
+void collectInstances(const Scope& scope, std::vector<const InstanceSymbol*>& out);
+
+// Path of `child` relative to `parent`'s body, e.g. "g_loop[0].u_gen". Both
+// paths go through the body, which slang may share between identical
+// instances, so the prefix comes from the body too.
+std::string relativePath(const InstanceSymbol& parent, const InstanceSymbol& child) {
+    const std::string prefix = hierPath(parent.body) + ".";
+    std::string path = hierPath(child);
+    if (path.starts_with(prefix)) path.erase(0, prefix.size());
+    return path;
+}
+
+std::string_view directionName(ArgumentDirection direction) {
+    switch (direction) {
+        case ArgumentDirection::In: return "input";
+        case ArgumentDirection::Out: return "output";
+        case ArgumentDirection::InOut: return "inout";
+        case ArgumentDirection::Ref: return "ref";
+    }
+    return "";
+}
+
 void collectInstances(const Scope& scope, std::vector<const InstanceSymbol*>& out) {
     for (const Symbol& member : scope.members()) {
         switch (member.kind) {
@@ -86,26 +108,35 @@ Port::Port(Tree& tree, Object* parent, const Symbol& symbol) :
     Object(Kind::Port, tree, parent, &symbol), symbol(symbol), name(symbol.name) {
 
     if (symbol.kind == SymbolKind::InterfacePort) {
-        portType = "Interface";
+        const auto& port = symbol.as<InterfacePortSymbol>();
+        kind = "interface";
+        interfaceName = port.interfaceDef ? std::string(port.interfaceDef->name) : "interface";
+        modport = std::string(port.modport);
         return;
     }
     if (symbol.kind == SymbolKind::MultiPort) {
-        portType = "MultiPort";
-        direction = toString(symbol.as<MultiPortSymbol>().direction);
+        const auto& port = symbol.as<MultiPortSymbol>();
+        kind = "multiport";
+        direction = directionName(port.direction);
+        dataType = port.getType().toString();
+        width = port.getType().getBitstreamWidth();
         return;
     }
 
     const auto& port = symbol.as<PortSymbol>();
-    direction = toString(port.direction);
-    portType = port.internalSymbol ? std::string(toString(port.internalSymbol->kind))
-                                   : "Net";  // implicit (unnamed) port expression
+    direction = directionName(port.direction);
+    dataType = port.getType().toString();
+    width = port.getType().getBitstreamWidth();
 
-    // Determine if it's wire or reg
-    if (port.isNetPort() || port.direction == ArgumentDirection::In ||
-        port.direction == ArgumentDirection::InOut) {
-        decType = "wire";
+    // The internal symbol is what the port connects to inside the module: a
+    // net (`input wire a`, `input a`) or a variable (`input logic a`,
+    // `output reg a`). Implicit port expressions have none.
+    if (port.internalSymbol && port.internalSymbol->kind == SymbolKind::Variable) {
+        kind = "var";
     } else {
-        decType = "reg";
+        kind = "net";
+        if (port.internalSymbol && port.internalSymbol->kind == SymbolKind::Net)
+            netType = port.internalSymbol->as<NetSymbol>().netType.name;
     }
 
     // Outermost dimension first, e.g. `logic [3:0] a [0:15]` -> {0 15} {3 0}.
@@ -127,8 +158,8 @@ Port::Port(Tree& tree, Object* parent, const Symbol& symbol) :
 
 // --- Driver -----------------------------------------------------------------
 
-Driver::Driver(Tree& tree, Object* parent, const void* key, std::string type) :
-    Object(Kind::Driver, tree, parent, key), type(std::move(type)) {}
+Driver::Driver(Tree& tree, Object* parent, const void* key, std::string kind) :
+    Object(Kind::Driver, tree, parent, key), kind(std::move(kind)) {}
 
 std::string Driver::name() const {
     return symbol ? std::string(symbol->name) : "";
@@ -140,13 +171,13 @@ std::string Driver::text() const {
 }
 
 std::string Driver::dataType() const {
-    if (type == "var" || type == "net") return symbol->as<ValueSymbol>().getType().toString();
+    if (kind == "var" || kind == "net") return symbol->as<ValueSymbol>().getType().toString();
     if (expr) return expr->type->toString();
     return "";
 }
 
 std::string Driver::netType() const {
-    return type == "net" ? std::string(symbol->as<NetSymbol>().netType.name) : "";
+    return kind == "net" ? std::string(symbol->as<NetSymbol>().netType.name) : "";
 }
 
 // --- Connection -------------------------------------------------------------
@@ -167,9 +198,9 @@ Port* Connection::port() {
 }
 
 Driver* Connection::driver() {
-    const auto make = [&](std::string type) {
+    const auto make = [&](std::string kind) {
         return tree.intern<Driver>(Kind::Driver, this, &conn, [&] {
-            return std::make_unique<Driver>(tree, this, &conn, std::move(type));
+            return std::make_unique<Driver>(tree, this, &conn, std::move(kind));
         });
     };
 
@@ -211,8 +242,13 @@ Driver* Connection::driver() {
 // --- Instance ---------------------------------------------------------------
 
 Instance::Instance(Kind kind, Tree& tree, Object* parent, const InstanceSymbol& symbol,
-                   std::string name) :
-    Object(kind, tree, parent, &symbol), symbol(symbol), name(std::move(name)) {}
+                   std::string name, std::string path) :
+    Object(kind, tree, parent, &symbol), symbol(symbol), name(std::move(name)),
+    path(std::move(path)) {}
+
+std::string Instance::refName() const {
+    return std::string(symbol.getDefinition().name);
+}
 
 std::vector<Port*> Instance::ports() {
     std::vector<Port*> result;
@@ -228,19 +264,15 @@ std::vector<Instance*> Instance::cells() {
     std::vector<const InstanceSymbol*> children;
     collectInstances(symbol.body, children);
 
-    // Name cells by their path relative to this instance, so instances in
-    // generate blocks and arrays read as "g_loop[0].u_gen" or "u[1]". Both
-    // paths go through the body, which slang may share between identical
-    // instances, so compute the prefix from the body too.
-    const std::string prefix = hierPath(symbol.body) + ".";
-
+    // Cells are named by their path below this instance, so instances in
+    // generate blocks and arrays read as "g_loop[0].u_gen" or "u[1]".
     std::vector<Instance*> result;
     for (const InstanceSymbol* child : children) {
-        std::string path = hierPath(*child);
-        if (path.starts_with(prefix)) path.erase(0, prefix.size());
-
         result.push_back(tree.intern<Instance>(Kind::Cell, this, child, [&] {
-            return std::make_unique<Instance>(Kind::Cell, tree, this, *child, path);
+            std::string name = relativePath(symbol, *child);
+            std::string fullPath = path + "." + name;
+            return std::make_unique<Instance>(Kind::Cell, tree, this, *child, std::move(name),
+                                              std::move(fullPath));
         }));
     }
     return result;
@@ -290,15 +322,33 @@ std::unique_ptr<Tree> Tree::parse(const std::vector<std::string>& paths, std::st
 }
 
 Instance* Tree::findModule(std::string_view moduleName) {
-    for (const InstanceSymbol* top : compilation->getRoot().topInstances) {
-        if (top->name == moduleName) {
-            return intern<Instance>(Kind::Module, this, top, [&] {
-                return std::make_unique<Instance>(Kind::Module, *this, this, *top,
-                                                  std::string(top->name));
+    // Breadth-first from the tops, so the shallowest instance wins.
+    std::vector<std::pair<const InstanceSymbol*, std::string>> queue;
+    for (const InstanceSymbol* top : compilation->getRoot().topInstances)
+        queue.emplace_back(top, std::string(top->name));
+
+    for (size_t i = 0; i < queue.size(); i++) {
+        const auto [inst, instPath] = queue[i];
+        if (inst->getDefinition().name == moduleName) {
+            return intern<Instance>(Kind::Module, this, inst, [&] {
+                return std::make_unique<Instance>(Kind::Module, *this, this, *inst,
+                                                  std::string(moduleName), instPath);
             });
         }
+
+        std::vector<const InstanceSymbol*> children;
+        collectInstances(inst->body, children);
+        for (const InstanceSymbol* child : children)
+            queue.emplace_back(child, instPath + "." + relativePath(*inst, *child));
     }
     return nullptr;
+}
+
+std::vector<std::string> Tree::topModules() const {
+    std::vector<std::string> names;
+    for (const InstanceSymbol* top : compilation->getRoot().topInstances)
+        names.emplace_back(top->getDefinition().name);
+    return names;
 }
 
 void Tree::release(Object* object) {

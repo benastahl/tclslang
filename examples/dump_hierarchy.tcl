@@ -1,94 +1,81 @@
-load [file join [file dirname [info script]] .. build libtclslang.so]
+# Prints the ports, cells and connections of every top module in a design.
+#
+#   tclsh examples/dump_hierarchy.tcl design.sv [more.sv ...]
+#
+# With no arguments, dumps each design in tests/cases.
 
-# Usage: tclsh examples/dump_hierarchy.tcl [file.sv ...]
-set files $argv
-if {[llength $files] == 0} {
-    set files [glob [file join [file dirname [info script]] .. tests cases *.v]]
+set here [file dirname [file normalize [info script]]]
+if {[info exists env(TCLSLANG_LIB)]} {
+    load $env(TCLSLANG_LIB)
+} else {
+    load [file join $here .. build libtclslang.so]
 }
 
-foreach file $files {
-    puts "==============================="
-    puts "Parsing file: $file"
-    puts "==============================="
-
-    if {[catch {slang_parse $file} tree]} {
-        puts $tree
-        continue
-    }
-    if {[catch {$tree get_module top} module]} {
-        puts $module
-        continue
-    }
-
-    set ports [$module get_ports]
-    puts "ports: $ports"
-
-    foreach p $ports {
-        puts "port name: [$p name]"
-        puts "port type: [$p portType]"
-        puts "port direction: [$p direction]"
-        puts "port declared type: [$p type]"
-        puts "port dimension type: [$p dimType]"
-        puts "dimension: [$p dimensions]"
-        puts "--------------------------"
-    }
-
-    set cells [$module get_cells]
-    puts "cells: $cells"
-
-    foreach c $cells {
-        puts "cell name: [$c name]"
-        set conns [$c get_connections]
-
-        foreach conn $conns {
-            set d [$conn get_driver]
-            set p [$conn get_port]
-
-            puts "   conn name: [$conn name]"
-            puts "   conn port: [$conn get_port]"
-            puts "   port name: [$p name]"
-            puts "   port type: [$p portType]"
-            puts "   port direction: [$p direction]"
-            puts "   port declared type: [$p type]"
-            puts "   port dimension type: [$p dimType]"
-            puts "   dimension: [$p dimensions]"
-            puts ""
-
-            set driver [$conn get_driver]
-            puts "   conn driver: $driver"
-            if {$driver eq ""} {
-                continue
-            }
-            set driverType [$d type]
-
-            if {$driverType eq "var"} {
-                puts "   driver name: [$d name]"
-                puts "   driver type: [$d type]"
-                puts "   driver data_type: [$d data_type]"
-
-            } elseif {$driverType eq "net"} {
-                puts "   driver name: [$d name]"
-                puts "   driver type: [$d type]"
-                puts "   driver data_type: [$d data_type]"
-                puts "   driver net_type: [$d net_type]"
-
-            } elseif {$driverType eq "const"} {
-                puts "   driver name: [$d name]"
-                puts "   const: [$d const]"
-
-            } elseif {$driverType eq "expr"} {
-                puts "   driver expr: [$d expr]"
-                puts "   driver data_type: [$d data_type]"
-
-            } elseif {$driverType eq "interface"} {
-                puts "   driver name: [$d name]"
-                puts "   driver modport: [$d modport]"
-            }
-
-            puts "  ----------------------------"
+proc describe_driver {d} {
+    if {$d eq ""} { return "(unconnected)" }
+    switch -- [$d kind] {
+        const     {
+            if {[$d expr] eq [$d const]} { return [$d const] }
+            return "[$d expr] = [$d const]"
         }
-        puts "--------------------------"
+        var - net { return "[$d expr]  ([$d kind] [$d data_type])" }
+        expr      { return "[$d expr]  (expression, [$d data_type])" }
+        interface {
+            set text "[$d name]  (interface"
+            if {[$d modport] ne ""} { append text ", modport [$d modport]" }
+            return "$text)"
+        }
     }
+}
 
-    puts "\n\n"
+proc dump_instance {inst depth} {
+    set pad [string repeat "  " $depth]
+    puts "${pad}[$inst name] : [$inst ref_name]    ([$inst hier_path])"
+
+    foreach conn [$inst get_connections] {
+        set port [$conn get_port]
+        set dir [expr {[$port direction] ne "" ? [$port direction] : [$port kind]}]
+        puts [format "%s  .%-12s %-7s <- %s" $pad [$conn name] $dir \
+                  [describe_driver [$conn get_driver]]]
+    }
+    foreach cell [$inst get_cells] {
+        dump_instance $cell [expr {$depth + 1}]
+    }
+}
+
+proc dump_design {files} {
+    if {[catch {slang_parse {*}$files} tree]} {
+        puts $tree
+        return
+    }
+    foreach top [$tree top_modules] {
+        set mod [$tree get_module $top]
+        puts "module $top"
+        foreach p [$mod get_ports] {
+            if {[$p kind] eq "interface"} {
+                puts "  port [$p name]: interface [$p interface]"
+            } else {
+                puts [format "  port %-14s %-7s %s" [$p name] [$p direction] [$p data_type]]
+            }
+        }
+        foreach cell [$mod get_cells] {
+            dump_instance $cell 1
+        }
+    }
+    $tree destroy
+}
+
+set designs $argv
+if {[llength $designs] == 0} {
+    set designs [lsort [glob -directory [file join $here .. tests cases] *.sv *.v multifile]]
+}
+
+foreach design $designs {
+    puts "=== [file tail $design]"
+    if {[file isdirectory $design]} {
+        dump_design [lsort [glob -directory $design *.sv *.v]]
+    } else {
+        dump_design [list $design]
+    }
+    puts ""
 }

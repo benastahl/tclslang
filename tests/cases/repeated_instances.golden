@@ -1,13 +1,13 @@
-module top
-  cell u_top
-    conn foo_port (In) <- var top_signal : logic
-    cell u_foo1
-      conn foo_port (In) <- net my_signal : logic (wire)
-    cell u_foo2
-      conn foo_port (In) <- var foo_port : logic
-  cell u_top2
-    conn foo_port (In) <- const 1'b0
-    cell u_foo1
-      conn foo_port (In) <- net my_signal : logic (wire)
-    cell u_foo2
-      conn foo_port (In) <- var foo_port : logic
+module top (top)
+  cell u_top : foo
+    conn foo_port (input) <- var top_signal : logic
+    cell u_foo1 : bar_t
+      conn foo_port (input) <- net my_signal : logic (wire)
+    cell u_foo2 : bar_t
+      conn foo_port (input) <- var foo_port : logic
+  cell u_top2 : foo
+    conn foo_port (input) <- const 1'b0
+    cell u_foo1 : bar_t
+      conn foo_port (input) <- net my_signal : logic (wire)
+    cell u_foo2 : bar_t
+      conn foo_port (input) <- var foo_port : logic

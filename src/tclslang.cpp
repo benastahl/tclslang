@@ -105,8 +105,8 @@ bool checkArgs(Tcl_Interp* interp, int objc, Tcl_Obj* const objv[], int expected
 // --- per-kind methods -------------------------------------------------------
 
 int TreeMethod(Tree& tree, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
-    static const char* const methods[] = {"get_module", "diagnostics", nullptr};
-    enum { GET_MODULE, DIAGNOSTICS };
+    static const char* const methods[] = {"get_module", "top_modules", "diagnostics", nullptr};
+    enum { GET_MODULE, TOP_MODULES, DIAGNOSTICS };
     int method;
     if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
 
@@ -119,6 +119,14 @@ int TreeMethod(Tree& tree, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) 
             Tcl_SetObjResult(interp, expose(interp, module));
             return TCL_OK;
         }
+        case TOP_MODULES: {
+            if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
+            Tcl_Obj* list = Tcl_NewListObj(0, nullptr);
+            for (const auto& name : tree.topModules())
+                Tcl_ListObjAppendElement(interp, list, str(name));
+            Tcl_SetObjResult(interp, list);
+            return TCL_OK;
+        }
         case DIAGNOSTICS:
             if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
             return setResult(interp, tree.diagnostics());
@@ -127,15 +135,17 @@ int TreeMethod(Tree& tree, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) 
 }
 
 int InstanceMethod(Instance& instance, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
-    static const char* const methods[] = {"name", "get_ports", "get_cells", "get_connections",
-                                          nullptr};
-    enum { NAME, GET_PORTS, GET_CELLS, GET_CONNECTIONS };
+    static const char* const methods[] = {"name",      "ref_name",  "hier_path",
+                                          "get_ports", "get_cells", "get_connections", nullptr};
+    enum { NAME, REF_NAME, HIER_PATH, GET_PORTS, GET_CELLS, GET_CONNECTIONS };
     int method;
     if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
     if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
 
     switch (method) {
         case NAME: return setResult(interp, instance.name);
+        case REF_NAME: return setResult(interp, instance.refName());
+        case HIER_PATH: return setResult(interp, instance.path);
         case GET_PORTS: return setList(interp, instance.ports());
         case GET_CELLS: return setList(interp, instance.cells());
         case GET_CONNECTIONS: return setList(interp, instance.connections());
@@ -144,9 +154,10 @@ int InstanceMethod(Instance& instance, Tcl_Interp* interp, int objc, Tcl_Obj* co
 }
 
 int PortMethod(Port& port, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
-    static const char* const methods[] = {"name", "direction", "portType", "type", "dimType",
-                                          "dimensions", nullptr};
-    enum { NAME, DIRECTION, PORT_TYPE, TYPE, DIM_TYPE, DIMENSIONS };
+    static const char* const methods[] = {"name",     "direction", "kind",      "data_type",
+                                          "net_type", "width",     "dimensions", "interface",
+                                          "modport",  nullptr};
+    enum { NAME, DIRECTION, KIND, DATA_TYPE, NET_TYPE, WIDTH, DIMENSIONS, INTERFACE, MODPORT };
     int method;
     if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
     if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
@@ -154,9 +165,12 @@ int PortMethod(Port& port, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) 
     switch (method) {
         case NAME: return setResult(interp, port.name);
         case DIRECTION: return setResult(interp, port.direction);
-        case PORT_TYPE: return setResult(interp, port.portType);
-        case TYPE: return setResult(interp, port.decType);
-        case DIM_TYPE: return setResult(interp, "");
+        case KIND: return setResult(interp, port.kind);
+        case DATA_TYPE: return setResult(interp, port.dataType);
+        case NET_TYPE: return setResult(interp, port.netType);
+        case WIDTH: Tcl_SetObjResult(interp, Tcl_NewWideIntObj(Tcl_WideInt(port.width))); return TCL_OK;
+        case INTERFACE: return setResult(interp, port.interfaceName);
+        case MODPORT: return setResult(interp, port.modport);
         case DIMENSIONS: {
             Tcl_Obj* dims = Tcl_NewListObj(0, nullptr);
             for (const auto& [left, right] : port.dimensions) {
@@ -191,25 +205,25 @@ int ConnectionMethod(Connection& conn, Tcl_Interp* interp, int objc, Tcl_Obj* co
 }
 
 int DriverMethod(Driver& driver, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
-    static const char* const methods[] = {"name",     "type",      "expr",    "const",
+    static const char* const methods[] = {"name",     "kind",      "expr",    "const",
                                           "data_type", "net_type", "modport", nullptr};
-    enum { NAME, TYPE, EXPR, CONSTANT, DATA_TYPE, NET_TYPE, MODPORT };
+    enum { NAME, KIND, EXPR, CONSTANT, DATA_TYPE, NET_TYPE, MODPORT };
     int method;
     if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
     if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
 
-    // Methods that only make sense for some driver types.
-    const auto only = [&](std::initializer_list<std::string_view> types) {
-        for (auto t : types)
-            if (driver.type == t) return true;
+    // Methods that only make sense for some driver kinds.
+    const auto only = [&](std::initializer_list<std::string_view> kinds) {
+        for (auto k : kinds)
+            if (driver.kind == k) return true;
         error(interp, std::string(Tcl_GetString(objv[1])) + " is not available on a " +
-                          driver.type + " driver");
+                          driver.kind + " driver");
         return false;
     };
 
     switch (method) {
         case NAME: return setResult(interp, driver.name());
-        case TYPE: return setResult(interp, driver.type);
+        case KIND: return setResult(interp, driver.kind);
         case EXPR: return setResult(interp, driver.text());
         case CONSTANT:
             if (!only({"const"})) return TCL_ERROR;
@@ -283,5 +297,5 @@ extern "C" [[maybe_unused]] int Tclslang_Init(Tcl_Interp* interp) {
     }
 
     Tcl_CreateObjCommand(interp, "slang_parse", SlangParseCmd, nullptr, nullptr);
-    return Tcl_PkgProvide(interp, "tclslang", "1.0");
+    return Tcl_PkgProvide(interp, "tclslang", "2.0");
 }
