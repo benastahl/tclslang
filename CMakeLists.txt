@@ -56,6 +56,17 @@ if(TCLSLANG_SANITIZE)
     target_link_options(tclslang PRIVATE ${SAN_FLAGS})
     execute_process(COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libasan.so
                     OUTPUT_VARIABLE ASAN_RUNTIME OUTPUT_STRIP_TRAILING_WHITESPACE)
+    # On some distros (e.g. Rocky 9 x86_64) this is a linker script such as
+    # "INPUT ( /usr/lib64/libasan.so.6.0.0 )", which ld.so can't preload.
+    # Follow it to the real shared object.
+    file(READ "${ASAN_RUNTIME}" _asan_head LIMIT 256)
+    if(_asan_head MATCHES "(INPUT|GROUP)[ \t]*\\([ \t]*(/[^ \t)]+)")
+        set(ASAN_RUNTIME "${CMAKE_MATCH_2}")
+    endif()
+    if(NOT EXISTS "${ASAN_RUNTIME}")
+        message(FATAL_ERROR "ASan runtime not found: ${ASAN_RUNTIME}")
+    endif()
+    message(STATUS "ASan runtime for tests: ${ASAN_RUNTIME}")
     set(TCLSLANG_TEST_ENV
         "LD_PRELOAD=${ASAN_RUNTIME}"
         "ASAN_OPTIONS=detect_leaks=1"
