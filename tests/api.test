@@ -1,0 +1,73 @@
+# API behaviour tests for tclslang (tcltest).
+#
+#   tclsh api.test <libtclslang.so>
+
+set lib [lindex $argv 0]
+set argv [lrange $argv 1 end]   ;# keep tcltest from parsing the library path
+
+package require tcltest
+namespace import ::tcltest::*
+
+load $lib
+set cases [file join [file dirname [file normalize [info script]]] cases]
+
+proc parse {name} {
+    slang_parse [file join $::cases $name]
+}
+
+# --- slang_parse ------------------------------------------------------------
+
+test parse-1.1 {slang_parse returns a tree handle} -body {
+    set tree [parse memory_nonansi.sv]
+    llength [info commands $tree]
+} -result 1
+
+test parse-1.2 {slang_parse with no arguments is an error} -body {
+    slang_parse
+} -returnCodes error -match glob -result {*slang_parse*}
+
+test parse-1.3 {a missing file is an error} -body {
+    slang_parse /no/such/file.sv
+} -returnCodes error -match glob -result *
+
+# --- modules and ports ------------------------------------------------------
+
+test module-1.1 {get_module returns a module with its name} -body {
+    set mod [[parse memory_nonansi.sv] get_module top]
+    $mod name
+} -result top
+
+test module-1.2 {ports come back in declaration order} -body {
+    set mod [[parse memory_nonansi.sv] get_module top]
+    lmap p [$mod get_ports] {$p name}
+} -result {address data_in data_out read_write chip_en}
+
+test port-1.1 {packed dimensions} -body {
+    set mod [[parse memory_nonansi.sv] get_module top]
+    [lindex [$mod get_ports] 0] dimensions
+} -result {{7 0}}
+
+# --- cells and connections --------------------------------------------------
+
+proc cell_named {mod name} {
+    foreach c [$mod get_cells] {
+        if {[$c name] eq $name} { return $c }
+    }
+    error "no cell $name"
+}
+
+test cell-1.1 {cells of a module, including interface instances} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    lmap c [$mod get_cells] {$c name}
+} -result {ifc_inst u1 u2 u3 u4 u5 u6 u7}
+
+test conn-1.1 {constant driver} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    set c [cell_named $mod u5]
+    set d [[lindex [$c get_connections] 0] get_driver]
+    list [$d type] [$d const]
+} -result {const 1'b1}
+
+set failed $::tcltest::numTests(Failed)
+cleanupTests
+exit [expr {$failed > 0}]

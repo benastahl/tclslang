@@ -1,3 +1,4 @@
+// top: system
 // Simple adder module
 module adder (
     input logic [3:0] a,

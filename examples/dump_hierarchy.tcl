@@ -1,13 +1,9 @@
 load [file join [file dirname [info script]] .. build libtclslang.so]
 
-set files {
-    ./verilog_tests/test.sv
-    ./verilog_tests/test2.sv
-    ./verilog_tests/test3.v
-    ./verilog_tests/test4.v
-    ./verilog_tests/test5.v
-    ./verilog_tests/test6.v
-    ./verilog_tests/test7.v
+# Usage: tclsh examples/dump_hierarchy.tcl [file.sv ...]
+set files $argv
+if {[llength $files] == 0} {
+    set files [glob [file join [file dirname [info script]] .. tests cases *.v]]
 }
 
 foreach file $files {

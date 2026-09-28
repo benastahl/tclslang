@@ -1,0 +1,19 @@
+module top
+  port in_var In Variable
+  port in_net In Net
+  port out_var Out Variable
+  cell ifc_inst
+  cell u1
+    conn a (In) <- var in_var : logic
+  cell u2
+    conn a (In) <- net in_net : logic (wire)
+  cell u3
+    conn a (In) <- net wire_signal : logic (wire)
+  cell u4
+    conn a (In) <- var logic_signal : logic
+  cell u5
+    conn a (In) <- const 1'b1
+  cell u6
+    conn a (In) <- const 1'b1
+  cell u7
+    conn a (In) <- var sig : logic

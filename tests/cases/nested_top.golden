@@ -1,0 +1,9 @@
+module system
+  cell top_instance
+    conn a (In) <- var sys_a : logic[3:0]
+    conn b (In) <- var sys_b : logic[3:0]
+    conn sum (Out) <- var sys_sum : logic[4:0]
+    cell my_adder
+      conn a (In) <- var a : logic[3:0]
+      conn b (In) <- var b : logic[3:0]
+      conn sum (Out) <- var sum : logic[4:0]

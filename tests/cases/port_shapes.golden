@@ -1,0 +1,11 @@
+module top
+  port clk In Net
+  port data_in In Net dims={7 0}
+  port data_out Out Variable dims={3 0}
+  port bidir_signal InOut Net
+  port addr In Net dims={0 15} {3 0}
+  port flag Out Net
+  port status Out Net dims={0 3} {1 0}
+  port i_select In Net dims={7 9}
+  port packed_2d In Variable dims={3 0} {7 0}
+  port sval Out Variable dims={15 0}

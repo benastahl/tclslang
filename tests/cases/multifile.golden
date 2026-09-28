@@ -1,0 +1,6 @@
+module top
+  port in In Variable dims={3 0}
+  port parity Out Variable
+  cell u_leaf
+    conn a (In) <- var in : logic[3:0]
+    conn y (Out) <- var parity : logic

@@ -1,0 +1,6 @@
+module top
+  port address In Net dims={7 0}
+  port data_in In Net dims={7 0}
+  port data_out Out Variable dims={7 0}
+  port read_write In Net
+  port chip_en In Net
