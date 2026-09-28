@@ -116,7 +116,6 @@ int Tree_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
         std::string moduleName = argv[2];
         auto moduleHandle = tree->getModule(moduleName);
         if (moduleHandle == nullopt) {
-            cerr << "Module name not found: \"" << moduleName << '"' << endl;
             Tcl_SetResult(interp, nullptr, TCL_STATIC); // empty string in tcl
             return TCL_OK;  // have tcl script-writer handle the error
         }

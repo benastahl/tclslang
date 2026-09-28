@@ -54,7 +54,6 @@ void addPort(const PortSymbol* portSymbol, string* handleStr) {
 
     const Symbol *internal = portSymbol->internalSymbol;
     if (!internal) {
-        std::cout << "Internal symbol is null" << std::endl;
         return;
     }
 
@@ -66,71 +65,6 @@ void addPort(const PortSymbol* portSymbol, string* handleStr) {
 
     // Store the instance in the map
     ports[*handleStr] = std::move(port);
-}
-
-
-void printInstanceTree(const InstanceSymbol* rootInst, int depth = 1) {
-    std::string indent(depth, '\t');
-
-    if (depth == 1) {
-        cout << "InstanceSymbol:"
-             << "\n" << "\tName: " << rootInst->name
-             << "\n" << "\tKind: " << rootInst->kind;
-
-        cout << "\n" << "\tPort List: ";
-        for (const Symbol* port : rootInst->body.getPortList()) {
-            cout << port->name << " ";
-        }
-        cout << "\n";
-
-        cout << "\tPort Connections:";
-        for (const PortConnection* portConn : rootInst->getPortConnections()) {
-            cout << " (" << portConn->port.name << " -> ";
-            if (auto* expr = portConn->getExpression()) {
-                if (auto* symRef = expr->getSymbolReference()) {
-                    cout << symRef->name;
-                } else {
-                    cout << "unresolved";
-                }
-            } else {
-                cout << "unconnected";
-            }
-            cout << ") ";
-        }
-        cout << "\n";
-    }
-
-    for (const InstanceSymbol& inst : rootInst->body.membersOfType<InstanceSymbol>()) {
-        cout << indent << "InstanceSymbol:"
-             << "\n" << indent << "\tName: " << inst.name
-             << "\n" << indent << "\tKind: " << inst.kind;
-
-        cout << "\n" << indent << "\tPort List: ";
-        for (const Symbol* port : inst.body.getPortList()) {
-            if (port->kind == SymbolKind::Port) {
-                cout << port->name << " ";
-            }
-        }
-        cout << "\n";
-
-        cout << indent << "\tPort Connections:";
-        for (const PortConnection* portConn : inst.getPortConnections()) {
-            cout << " (" << portConn->port.name << " -> ";
-            if (auto* expr = portConn->getExpression()) {
-                if (auto* symRef = expr->getSymbolReference()) {
-                    cout << symRef->name;
-                } else {
-                    cout << "unresolved";
-                }
-            } else {
-                cout << "unconnected";
-            }
-            cout << ") ";
-        }
-        cout << "\n";
-
-        printInstanceTree(&inst, depth + 1);
-    }
 }
 
 
@@ -170,15 +104,12 @@ public:
     }
 
     void setDriver(string* handleStr) {
-        cout << "[Note] Getting driver...\n";
         const Expression* expr = this->portConn->getExpression();
 
         // checking for valid expression.
         if (!expr) {
-            cout << "[Warning] No driver expression connected to port.\n";
             return;
         } else if (expr->bad()) {
-            cout << "[Error] driver expression is invalid or has syntax errors\n";
             return;
         }
 
@@ -226,7 +157,6 @@ public:
     explicit Port(const PortSymbol *portSymbol) {
         this->port = portSymbol;
 
-        cout << "Port Name: " << portSymbol->name << endl;
 
         this->direction = toString(portSymbol->direction);
         this->portType = toString(portSymbol->internalSymbol->kind);
@@ -245,20 +175,15 @@ public:
         while (type->isArray()) {
             if (type->isPackedArray()) {
                 const auto &packedArray = type->getCanonicalType().as<PackedArrayType>();
-                cout << "  Packed array range: " << packedArray.range.left << " to " << packedArray.range.right
-                     << endl;
                 this->dimensions.push_back({packedArray.range.left, packedArray.range.right});
 
                 type = &packedArray.elementType;
             } else if (type->isUnpackedArray()) {
                 const auto &unpackedArray = type->getCanonicalType().as<FixedSizeUnpackedArrayType>();
-                cout << "  Unpacked array range: " << unpackedArray.range.left << " to "
-                     << unpackedArray.range.right << endl;
                 this->dimensions.push_back({unpackedArray.range.left, unpackedArray.range.right});
 
                 type = &unpackedArray.elementType;
             } else {
-                cout << "  Unknown array type." << endl;
                 break;
             }
         }
@@ -321,7 +246,6 @@ public:
     vector<string> getPortConns() {
         vector<string> connHandles;
         for (const PortConnection* pc : instSymbol->getPortConnections()) {
-            cout << "got port " << pc->port.name << " of kind " << toString(pc->port.kind) << "\n";
             auto port_connection = make_unique<PortConn>(pc);
 
 //            const auto& net_thing = pc->getExpression()->getSymbolReference()->as<VariableSymbol>();
@@ -366,15 +290,11 @@ public:
         // find topmost module instance
         const Symbol *myModuleFind = root.find(moduleName);
         if (myModuleFind == nullptr) {
-            cout << "Failed to find module with given name." << endl;
             return nullopt;
         }
 
         const auto& myModule = myModuleFind->as<InstanceSymbol>();
 
-        printInstanceTree(&myModule);
-
-        cout << "got instance: " << myModule.name << " of type " << toString(myModule.kind) << endl;
 
         auto mod = make_unique<Module>(&myModule);
 
