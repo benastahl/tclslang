@@ -1,0 +1,12 @@
+module top (top)
+  port d input var : logic[3:0] width=4 dims={3 0}
+  cell u_array[0] : cell_a
+    conn d (input) <- var d : logic[3:0] via {d[1:0]}
+  cell u_array[1] : cell_a
+    conn d (input) <- var d : logic[3:0] via {d[1:0]}
+  cell g_loop[0].u_gen : cell_a
+    conn d (input) <- var d : logic[3:0] via {d[i]}
+  cell g_loop[1].u_gen : cell_a
+    conn d (input) <- var d : logic[3:0] via {d[i]}
+  cell g_if.u_cond : cell_a
+    conn d (input) <- var d : logic[3:0] via {d[3]}

@@ -1,0 +1,6 @@
+module top (top)
+  port in input var : logic[3:0] width=4 dims={3 0}
+  port parity output var : logic width=1
+  cell u_leaf : leaf
+    conn a (input) <- var in : logic[3:0]
+    conn y (output) <- var parity : logic

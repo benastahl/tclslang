@@ -1,0 +1,19 @@
+module top (top)
+  port bus input var : logic[7:0] width=8 dims={7 0}
+  port x input var : logic width=1
+  port z input var : logic width=1
+  cell u_and : leaf
+    conn a (input) <- expr {{1'b0, x & z}} : logic[1:0]
+    conn y (output) <- var v_out : logic[1:0]
+  cell u_concat : leaf
+    conn a (input) <- expr {{x, z}} : logic[1:0]
+    conn y (output) <- net n_out : logic[1:0] (wire)
+  cell u_select : leaf
+    conn a (input) <- var bus : logic[7:0] via {bus[3:2]}
+    conn y (output) <- unconnected
+  cell u_bit : leaf
+    conn a (input) <- expr {{1'b0, bus[5]}} : logic[1:0]
+    conn y (output) <- var v_out2 : logic[1:0]
+  cell u_open : leaf
+    conn a (input) <- unconnected
+    conn y (output) <- var v_out3 : logic[1:0]

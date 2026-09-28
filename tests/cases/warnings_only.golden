@@ -1,0 +1,3 @@
+module top (top)
+  cell u_sub : sub
+    conn a (input) <- unconnected

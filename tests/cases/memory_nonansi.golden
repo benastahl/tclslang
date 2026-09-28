@@ -1,0 +1,6 @@
+module top (top)
+  port address input net : logic[7:0] (wire) width=8 dims={7 0}
+  port data_in input net : logic[7:0] (wire) width=8 dims={7 0}
+  port data_out output var : reg[7:0] width=8 dims={7 0}
+  port read_write input net : logic (wire) width=1
+  port chip_en input net : logic (wire) width=1

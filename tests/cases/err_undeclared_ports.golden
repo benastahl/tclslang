@@ -1,0 +1,53 @@
+error: slang_parse: design has 17 error(s)
+err_undeclared_ports.sv:3:5: error: port 'data_in' has no I/O member declaration
+    data_in,
+    ^
+err_undeclared_ports.sv:4:5: error: port 'data_out' has no I/O member declaration
+    data_out,
+    ^
+err_undeclared_ports.sv:5:5: error: port 'read_write' has no I/O member declaration
+    read_write,
+    ^
+err_undeclared_ports.sv:6:5: error: port 'chip_en' has no I/O member declaration
+    chip_en
+    ^
+err_undeclared_ports.sv:9:33: error: port declaration 'super_cool_chip' does not match any port in the module's port list
+  input wire [100:150] address, super_cool_chip;
+                                ^~~~~~~~~~~~~~~
+err_undeclared_ports.sv:13:24: error: use of undeclared identifier 'data_in'
+  always @ (address or data_in or read_write or chip_en)
+                       ^~~~~~~
+err_undeclared_ports.sv:13:35: error: use of undeclared identifier 'read_write'
+  always @ (address or data_in or read_write or chip_en)
+                                  ^~~~~~~~~~
+err_undeclared_ports.sv:13:49: error: use of undeclared identifier 'chip_en'
+  always @ (address or data_in or read_write or chip_en)
+                                                ^~~~~~~
+err_undeclared_ports.sv:14:9: error: use of undeclared identifier 'read_write'
+    if (read_write == 1 && chip_en == 1) begin
+        ^~~~~~~~~~
+err_undeclared_ports.sv:14:28: error: use of undeclared identifier 'chip_en'
+    if (read_write == 1 && chip_en == 1) begin
+                           ^~~~~~~
+err_undeclared_ports.sv:15:22: error: use of undeclared identifier 'data_in'
+      mem[address] = data_in;
+                     ^~~~~~~
+err_undeclared_ports.sv:18:13: error: use of undeclared identifier 'read_write'
+  always @ (read_write or chip_en or address)
+            ^~~~~~~~~~
+err_undeclared_ports.sv:18:27: error: use of undeclared identifier 'chip_en'
+  always @ (read_write or chip_en or address)
+                          ^~~~~~~
+err_undeclared_ports.sv:19:9: error: use of undeclared identifier 'read_write'
+    if (read_write == 0 && chip_en)
+        ^~~~~~~~~~
+err_undeclared_ports.sv:19:28: error: use of undeclared identifier 'chip_en'
+    if (read_write == 0 && chip_en)
+                           ^~~~~~~
+err_undeclared_ports.sv:20:7: error: use of undeclared identifier 'data_out'
+      data_out = mem[address];
+      ^~~~~~~~
+err_undeclared_ports.sv:22:7: error: use of undeclared identifier 'data_out'
+      data_out = 0;
+      ^~~~~~~~
+

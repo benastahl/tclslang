@@ -1,0 +1,19 @@
+module top (top)
+  port in_var input var : logic width=1
+  port in_net input net : logic (wire) width=1
+  port out_var output var : logic width=1
+  cell ifc_inst : simple_ifc
+  cell u1 : sub
+    conn a (input) <- var in_var : logic
+  cell u2 : sub
+    conn a (input) <- net in_net : logic (wire)
+  cell u3 : sub
+    conn a (input) <- net wire_signal : logic (wire)
+  cell u4 : sub
+    conn a (input) <- var logic_signal : logic
+  cell u5 : sub
+    conn a (input) <- const 1'b1
+  cell u6 : sub
+    conn a (input) <- const 1'b1 via {WIDTH}
+  cell u7 : sub
+    conn a (input) <- var sig : logic via {ifc_inst.sig}

@@ -1,0 +1,4 @@
+# glibc keeps a per-thread dlerror() buffer allocated when Tcl's `load` calls
+# dlsym(); it is not freed before exit. Not a tclslang leak.
+leak:_dlerror_run
+leak:dlerror

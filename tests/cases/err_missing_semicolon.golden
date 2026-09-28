@@ -1,0 +1,11 @@
+error: slang_parse: design has 2 error(s)
+err_missing_semicolon.v:19:9: warning: port 'foo_port' has no connection [-Wunconnected-port]
+    foo u_top2 (...)
+        ^
+err_missing_semicolon.v:19:18: error: expected identifier
+    foo u_top2 (...)
+                 ^
+err_missing_semicolon.v:19:21: error: expected ';'
+    foo u_top2 (...)
+                    ^
+

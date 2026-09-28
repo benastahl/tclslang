@@ -1,0 +1,245 @@
+# API behaviour tests for tclslang (tcltest).
+#
+#   tclsh api.test <libtclslang.so>
+
+set lib [lindex $argv 0]
+set argv [lrange $argv 1 end]   ;# keep tcltest from parsing the library path
+
+package require tcltest
+namespace import ::tcltest::*
+
+load $lib
+set cases [file join [file dirname [file normalize [info script]]] cases]
+
+proc parse {name} {
+    slang_parse [file join $::cases $name]
+}
+
+# --- slang_parse ------------------------------------------------------------
+
+test parse-1.1 {slang_parse returns a tree handle} -body {
+    set tree [parse memory_nonansi.sv]
+    llength [info commands $tree]
+} -result 1
+
+test parse-1.2 {slang_parse with no arguments is an error} -body {
+    slang_parse
+} -returnCodes error -match glob -result {*slang_parse*}
+
+test parse-1.3 {a missing file names the file and the reason} -body {
+    slang_parse /no/such/file.sv
+} -returnCodes error -result {slang_parse: cannot read "/no/such/file.sv": No such file or directory}
+
+test parse-1.4 {syntax errors are reported with slang's diagnostics} -body {
+    parse err_trailing_comma.v
+} -returnCodes error -match glob -result {slang_parse: design has 1 error(s)
+*err_trailing_comma.v:9:48: error: misplaced trailing ','*}
+
+test parse-1.5 {warnings do not fail the parse and are available on the tree} -body {
+    set tree [parse warnings_only.sv]
+    string match "*warning: port 'a' has no connection*" [$tree diagnostics]
+} -result 1
+
+# --- modules and ports ------------------------------------------------------
+
+test module-1.1 {get_module returns a module with its name} -body {
+    set mod [[parse memory_nonansi.sv] get_module top]
+    $mod name
+} -result top
+
+test module-1.1a {an unknown module is an error} -body {
+    [parse memory_nonansi.sv] get_module nope
+} -returnCodes error -result {module "nope" not found}
+
+test module-1.3 {get_module finds modules below the top, and reports the instance path} -body {
+    set tree [parse nested_top.v]
+    set mod [$tree get_module adder]
+    list [$mod name] [$mod hier_path] [lmap c [[$tree get_module system] get_cells] {$c ref_name}]
+} -result {adder system.top_instance.my_adder top}
+
+test module-1.4 {top_modules lists the design roots} -body {
+    [parse nested_top.v] top_modules
+} -result system
+
+test module-1.2 {ports come back in declaration order} -body {
+    set mod [[parse memory_nonansi.sv] get_module top]
+    lmap p [$mod get_ports] {$p name}
+} -result {address data_in data_out read_write chip_en}
+
+test port-1.1 {packed dimensions} -body {
+    set mod [[parse memory_nonansi.sv] get_module top]
+    [lindex [$mod get_ports] 0] dimensions
+} -result {{7 0}}
+
+proc cell_named {mod name} {
+    foreach c [$mod get_cells] {
+        if {[$c name] eq $name} { return $c }
+    }
+    error "no cell $name"
+}
+
+proc port_named {inst name} {
+    foreach p [$inst get_ports] {
+        if {[$p name] eq $name} { return $p }
+    }
+    error "no port $name"
+}
+
+proc describe {p} {
+    list [$p direction] [$p kind] [$p data_type] [$p net_type] [$p width]
+}
+
+test port-2.1 {net and variable ports report slang's types} -body {
+    set mod [[parse port_shapes.sv] get_module top]
+    lmap name {clk data_in data_out bidir_signal packed_2d sval} {
+        describe [port_named $mod $name]
+    }
+} -result {{input net logic wire 1} {input net {logic[7:0]} wire 8} {output var {reg[3:0]} {} 4} {inout net logic wire 1} {input var {logic[3:0][7:0]} {} 32} {output var {logic signed[15:0]} {} 16}}
+
+test port-2.2 {input logic is a variable, not a wire} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    lmap p [$mod get_ports] {list [$p name] [$p kind] [$p net_type]}
+} -result {{in_var var {}} {in_net net wire} {out_var var {}}}
+
+test port-2.3 {unpacked dimensions come first, and width counts every element} -body {
+    set p [port_named [[parse port_shapes.sv] get_module top] addr]
+    list [$p dimensions] [$p width]
+} -result {{{0 15} {3 0}} 64}
+
+test port-2.4 {interface ports report the interface and modport} -body {
+    set mod [[parse interface_port.sv] get_module top]
+    set prod [cell_named $mod u_prod]
+    set cons [cell_named $mod u_cons]
+    lmap p [list [port_named $prod bus] [port_named $cons bus]] {
+        list [$p kind] [$p interface] [$p modport] [$p direction]
+    }
+} -result {{interface bus_if master {}} {interface bus_if {} {}}}
+
+# --- cells and connections --------------------------------------------------
+
+test cell-1.1 {cells of a module, including interface instances} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    lmap c [$mod get_cells] {$c name}
+} -result {ifc_inst u1 u2 u3 u4 u5 u6 u7}
+
+test conn-1.1 {constant driver} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    set c [cell_named $mod u5]
+    set d [[lindex [$c get_connections] 0] get_driver]
+    list [$d kind] [$d const]
+} -result {const 1'b1}
+
+test conn-1.2 {an unconnected port has no driver and creates no command} -body {
+    set mod [[parse expr_connections.sv] get_module top]
+    set conn [lindex [[cell_named $mod u_open] get_connections] 0]
+    list [$conn name] [$conn get_driver] [llength [info commands {}]]
+} -result {a {} 0}
+
+test conn-1.3 {an expression driver has no name but reports its text and type} -body {
+    set mod [[parse expr_connections.sv] get_module top]
+    set d [[lindex [[cell_named $mod u_concat] get_connections] 0] get_driver]
+    list [$d kind] [$d name] [$d expr] [$d data_type]
+} -result {expr {} {{x, z}} {logic[1:0]}}
+
+test cell-1.2 {instances inside generate blocks and arrays are cells} -body {
+    set mod [[parse generate_and_arrays.sv] get_module top]
+    lmap c [$mod get_cells] {$c name}
+} -result {{u_array[0]} {u_array[1]} {g_loop[0].u_gen} {g_loop[1].u_gen} g_if.u_cond}
+
+test cell-1.3 {cells know their module and full path} -body {
+    set mod [[parse generate_and_arrays.sv] get_module top]
+    lmap c [$mod get_cells] {list [$c ref_name] [$c hier_path]}
+} -result {{cell_a {top.u_array[0]}} {cell_a {top.u_array[1]}} {cell_a {top.g_loop[0].u_gen}} {cell_a {top.g_loop[1].u_gen}} {cell_a top.g_if.u_cond}}
+
+test conn-1.4 {interface port connections report the interface and modport} -body {
+    set mod [[parse interface_port.sv] get_module top]
+    set d [[lindex [[cell_named $mod u_cons] get_connections] 0] get_driver]
+    list [$d kind] [$d name] [$d modport]
+} -result {interface the_bus slave}
+
+# --- handle lifecycle ---------------------------------------------------------
+
+proc handle_count {} {
+    llength [info commands {[a-z]*[0-9]}]
+}
+
+test life-1.1 {asking twice returns the same handles} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    expr {[$mod get_ports] eq [$mod get_ports] && [$mod get_cells] eq [$mod get_cells]}
+} -result 1
+
+test life-1.2 {a connection's port is the cell's port handle} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    set cell [cell_named $mod u1]
+    expr {[[lindex [$cell get_connections] 0] get_port] eq [lindex [$cell get_ports] 0]}
+} -result 1
+
+test life-1.3 {tree destroy removes every handle created from it} -body {
+    set before [handle_count]
+    set tree [parse driver_kinds.v]
+    set mod [$tree get_module top]
+    foreach c [$mod get_cells] {
+        foreach conn [$c get_connections] { $conn get_port; $conn get_driver }
+    }
+    set during [handle_count]
+    $tree destroy
+    list [expr {$during > $before + 20}] [expr {[handle_count] - $before}]
+} -result {1 0}
+
+test life-1.4 {rename to {} is the same as destroy} -body {
+    set before [handle_count]
+    set tree [parse memory_nonansi.sv]
+    [$tree get_module top] get_ports
+    rename $tree {}
+    expr {[handle_count] - $before}
+} -result 0
+
+test life-1.5 {destroying a module destroys its descendants but not the tree} -body {
+    set tree [parse nested_top.v]
+    set mod [$tree get_module system]
+    set cell [lindex [$mod get_cells] 0]
+    $mod destroy
+    list [llength [info commands $cell]] [llength [info commands $tree]] \
+         [[$tree get_module system] name]
+} -result {0 1 system}
+
+test life-1.6 {a destroyed handle is no longer a command} -body {
+    set tree [parse memory_nonansi.sv]
+    $tree destroy
+    $tree get_module top
+} -returnCodes error -result {invalid command name "tree*"} -match glob
+
+test life-1.7 {parse and destroy in a loop does not accumulate handles} -body {
+    set before [handle_count]
+    for {set i 0} {$i < 50} {incr i} {
+        set tree [parse generate_and_arrays.sv]
+        foreach c [[$tree get_module top] get_cells] { $c get_connections }
+        $tree destroy
+    }
+    expr {[handle_count] - $before}
+} -result 0
+
+test life-1.8 {cells under repeated instances are distinct per instance} -body {
+    set mod [[parse repeated_instances.v] get_module top]
+    set leaves {}
+    foreach c [$mod get_cells] {
+        foreach leaf [$c get_cells] { lappend leaves $leaf }
+    }
+    llength [lsort -unique $leaves]
+} -result 4
+
+# --- errors -------------------------------------------------------------------
+
+test err-1.1 {unknown methods list the valid ones} -body {
+    [[parse memory_nonansi.sv] get_module top] frobnicate
+} -returnCodes error -match glob -result {bad method "frobnicate": must be *}
+
+test err-1.2 {driver methods that do not apply are errors} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    set d [[lindex [[cell_named $mod u1] get_connections] 0] get_driver]
+    $d net_type
+} -returnCodes error -result {net_type is not available on a var driver}
+
+set failed $::tcltest::numTests(Failed)
+cleanupTests
+exit [expr {$failed > 0}]

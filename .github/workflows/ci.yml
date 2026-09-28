@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Rocky Linux 9 / Release
+            cmake_args: -DCMAKE_BUILD_TYPE=Release
+          - name: Rocky Linux 9 / ASan + UBSan
+            cmake_args: -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTCLSLANG_SANITIZE=ON
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # fmt and slang are compiled in early image layers, which the GitHub
+      # Actions cache keeps between runs; only the tclslang layer rebuilds.
+      - name: Build environment image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: tclslang:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and run tests
+        run: |
+          docker run --rm -v "$PWD":/src -w /src tclslang:ci bash -c '
+            cmake -B build-ci ${{ matrix.cmake_args }} &&
+            cmake --build build-ci -j"$(nproc)" &&
+            ctest --test-dir build-ci --output-on-failure'

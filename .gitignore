@@ -1,6 +1,5 @@
-./slang
-./build/
-./cmake-build-debug
+build/
+cmake-build-debug/
 
 # Compiled object files
 *.o
@@ -15,9 +14,6 @@
 # Temporary files
 *.tmp
 
-# Git directories
-.git/
-
 # IDE specific (optional)
 .vscode/
 .idea/
@@ -26,3 +22,8 @@
 .DS_Store
 Thumbs.db
 
+build-*/
+
+run.tcl
+
+PHASE1_CHANGES.md

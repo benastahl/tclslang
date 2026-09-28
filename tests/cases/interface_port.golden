@@ -1,0 +1,8 @@
+module top (top)
+  port clk input var : logic width=1
+  cell the_bus : bus_if
+  cell u_prod : producer
+    conn bus (interface) <- interface the_bus modport master
+    conn clk (input) <- var clk : logic
+  cell u_cons : consumer
+    conn bus (interface) <- interface the_bus modport slave
