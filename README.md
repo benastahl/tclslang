@@ -87,13 +87,13 @@ sudo dnf install -y gcc-c++ make cmake git python3 tcl tcl-devel pkgconf-pkg-con
 # fmt >= 11.1 as a shared library (slang and tclslang must link the same one)
 git clone --depth 1 --branch 11.1.4 https://github.com/fmtlib/fmt.git
 cmake -S fmt -B fmt/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DFMT_TEST=OFF
-cmake --build fmt/build -j && sudo cmake --install fmt/build
+cmake --build fmt/build -j"$(nproc)" && sudo cmake --install fmt/build
 
 # slang, at the commit tclslang is tested against
 git clone https://github.com/MikePopoloski/slang.git && git -C slang checkout 652a9ab5b4d093ff4f8fcf6e1e3fdcc7e292f931
 cmake -S slang -B slang/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
       -DSLANG_INCLUDE_TESTS=OFF -DSLANG_INCLUDE_TOOLS=OFF -DSLANG_USE_MIMALLOC=OFF
-cmake --build slang/build -j && sudo cmake --install slang/build --strip
+cmake --build slang/build -j"$(nproc)" && sudo cmake --install slang/build --strip
 
 # /usr/local/lib64 is not on the default loader path on EL
 echo /usr/local/lib64 | sudo tee /etc/ld.so.conf.d/local.conf && sudo ldconfig
@@ -243,7 +243,7 @@ cmake -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTCLSLANG_SANITIZE=ON
 cmake --build build-asan && ctest --test-dir build-asan --output-on-failure
 ```
 
-**CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds the Docker image and runs the full suite twice on every push and PR: once as a Release build and once with ASan and UBSan. The GitHub Actions cache keeps the fmt and slang layers, so only tclslang rebuilds.
+**CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds the Docker image and runs the full suite twice on pushes to `master`, on pull requests, and on manual dispatch: once as a Release build and once with ASan and UBSan. The GitHub Actions cache keeps the fmt and slang layers, so only tclslang rebuilds.
 
 ---
 
