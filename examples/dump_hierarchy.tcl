@@ -1,4 +1,4 @@
-load ./build/libtclslang.so
+load [file join [file dirname [info script]] .. build libtclslang.so]
 
 set files {
     ./verilog_tests/test.sv
@@ -69,7 +69,7 @@ foreach file $files {
 
             } elseif {$driverType eq "net"} {
                 puts "   driver name: [$d name]"
-                puts "   driver type: [$d name]"
+                puts "   driver type: [$d type]"
                 puts "   driver data_type: [$d data_type]"
                 puts "   driver net_type: [$d net_type]"
 

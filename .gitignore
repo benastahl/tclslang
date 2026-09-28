@@ -1,6 +1,5 @@
-./slang
-./build/
-./cmake-build-debug
+build/
+cmake-build-debug/
 
 # Compiled object files
 *.o
@@ -14,9 +13,6 @@
 
 # Temporary files
 *.tmp
-
-# Git directories
-.git/
 
 # IDE specific (optional)
 .vscode/

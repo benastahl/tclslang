@@ -40,4 +40,4 @@ WORKDIR /work
 COPY . .
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j${JOBS}
 
-CMD ["tclsh", "yerrr.tcl"]
+CMD ["tclsh", "examples/dump_hierarchy.tcl"]
