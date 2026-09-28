@@ -1,0 +1,13 @@
+module top
+  cell u_top
+    conn foo_port (In) <- var top_signal : logic
+    cell u_foo1
+      conn foo_port (In) <- net my_signal : logic (wire)
+    cell u_foo2
+      conn foo_port (In) <- var foo_port : logic
+  cell u_top2
+    conn foo_port (In) <- const 1'b0
+    cell u_foo1
+      conn foo_port (In) <- net my_signal : logic (wire)
+    cell u_foo2
+      conn foo_port (In) <- var foo_port : logic

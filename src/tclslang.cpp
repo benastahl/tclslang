@@ -1,586 +1,287 @@
-//
-// Created by ec2-user on 12/29/24.
-//
-
 // TCLSLANG BY BEN STAHL
 // https://github.com/benastahl/tclslang
+//
+// Tcl binding: every design object is exposed as a Tcl command (its handle).
+//
+//   set tree [slang_parse top.sv]
+//   set mod  [$tree get_module top]
+//   foreach p [$mod get_ports] { puts [$p name] }
+//   $tree destroy                ;# frees the tree and every handle from it
+//
+// Each command's clientData is the object itself, and its delete proc frees
+// the object, so `$h destroy`, `rename $h {}` and interpreter teardown all
+// release memory the same way.
 
-#include "slang/syntax/SyntaxTree.h"
-#include "slang/syntax/SyntaxNode.h"
-#include <slang/ast/symbols/InstanceSymbols.h>
-#include <slang/ast/types/NetType.h>
-#include <cstring>
+#include <array>
 #include <string>
-#include <utility>
+#include <vector>
+
 #include <tcl.h>
-#include <tclslang/hdl_tree.hpp>
 
-using namespace slang::syntax;
-using namespace slang::ast;
-using namespace std;
+#include "tclslang/design.hpp"
 
-int Tree_MethodCmd(ClientData clientData, Tcl_Interp *interp, int argc, const char *argv[]);
-int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
-int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
-int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
-int PortConn_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
-int Driver_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]);
+using namespace tclslang;
+using Kind = Object::Kind;
 
+namespace {
 
-/*
-module foo ;
+int ObjectCmd(ClientData clientData, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]);
+void ObjectDeleted(ClientData clientData);
 
-instance_type1 instance_name1 ( .pin_name1(net_name1), .pin_name2(net_name2) ) ;
-instance_type2 instance_name2 ( .pin_name3(net_name3), .pine_name4(net_name4) );
+Tcl_Obj* str(std::string_view text) {
+    return Tcl_NewStringObj(text.data(), static_cast<int>(text.size()));
+}
 
-endmodule
-
-instance_inst => {name ports port connections}
-
-mod get_ports -> {port_inst port2_inst}
-
-mod get_cells -> {instance1_inst instance2_inst}
-inst get_pins -> {pin_inst1 pin_inst2}
-pin get_nets  -> {net_name1}
-
- NEW:
-mod get_cells -> {instance1_inst instance2_inst}
-inst get_connections -> {conn_inst1 conn_inst2}
- conn_inst get_driver -> driver_inst
- */
-
-
-int SlangParse(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]) {
-    if (argc < 2) {
-        Tcl_SetResult(interp, const_cast<char*>("Usage: slang_parse [<verilog_file> ...]"), TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    vector<string_view> filePaths;
-    for (int i = 1; i < argc; i++) {
-        filePaths.emplace_back(argv[i]);
-    }
-
-    auto syntaxTreeOpt = SyntaxTree::fromFiles(filePaths);
-    if (!syntaxTreeOpt) {
-        const auto& [code, path] = syntaxTreeOpt.error();
-        string msg = "slang_parse: cannot read \"" + string(path) + "\": " + code.message();
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(msg.c_str(), msg.size()));
-        return TCL_ERROR;
-    }
-
-    const auto& syntaxTree = syntaxTreeOpt.value();
-
-    // Create a new Tree instance
-    auto tree = std::make_unique<Tree>(syntaxTree);
-    if (tree->numErrors > 0) {
-        string msg = "slang_parse: design has " + to_string(tree->numErrors) + " error(s)\n" +
-                     tree->diagnostics;
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(msg.c_str(), msg.size()));
-        return TCL_ERROR;
-    }
-
-    // Generate a unique handle
-    static int treeCounter = 0;
-    std::string handleStr = "tree" + std::to_string(treeCounter++);
-
-    // Store the instance in the map
-    trees[handleStr] = std::move(tree);
-
-    // Register a new Tcl command using the handle
-    Tcl_CreateCommand(interp, handleStr.c_str(), Tree_MethodCmd, (ClientData)&trees[handleStr], nullptr);
-
-    // Return the handle to Tcl
-    Tcl_SetObjResult(interp, Tcl_NewStringObj(handleStr.c_str(), handleStr.length()));
-
+int setResult(Tcl_Interp* interp, std::string_view text) {
+    Tcl_SetObjResult(interp, str(text));
     return TCL_OK;
 }
 
-int Tree_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]) {
-    if (argc < 2) {
-        Tcl_SetResult(interp, const_cast<char*>("Usage: <handle> <method> [args...]"), TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    // Get the handle name (e.g., "tree0")
-    std::string handle = argv[0];
-
-    // Find the corresponding Tree instance
-    auto it = trees.find(handle);
-    if (it == trees.end()) {
-        Tcl_SetResult(interp, const_cast<char*>("Invalid tree handle"), TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    auto& tree = it->second;
-
-    std::string method = argv[1];
-    if (method == "get_module") {
-        if (argc != 3) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <handle> get_module <module_name>"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        std::string moduleName = argv[2];
-        auto moduleHandle = tree->getModule(moduleName);
-        if (moduleHandle == nullopt) {
-            string msg = "module \"" + moduleName + "\" not found";
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(msg.c_str(), msg.size()));
-            return TCL_ERROR;
-        }
-
-        // set module method command
-        Tcl_CreateCommand(interp, moduleHandle.value().c_str(), Module_MethodCmd, (ClientData)&modules[moduleHandle.value()], nullptr);
-
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(moduleHandle->c_str(), moduleHandle->length()));
-        return TCL_OK;
-    } else if (method == "diagnostics") {
-        // Warnings (a tree with errors is never created).
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(tree->diagnostics.c_str(), tree->diagnostics.size()));
-        return TCL_OK;
-    }
-
-    Tcl_SetResult(interp, const_cast<char*>("Unknown method"), TCL_STATIC);
+int error(Tcl_Interp* interp, const std::string& message) {
+    Tcl_SetObjResult(interp, str(message));
     return TCL_ERROR;
 }
 
-int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]) {
-    if (argc < 2) {
-        Tcl_SetResult(interp, const_cast<char*>("Usage: <module_name> <method> [args...]"), TCL_STATIC);
-        return TCL_ERROR;
+// Registers `object` as a Tcl command the first time it is handed to a script
+// and returns its handle.
+Tcl_Obj* expose(Tcl_Interp* interp, Object* object) {
+    static constexpr std::array<const char*, 6> prefixes = {"tree", "mod",  "cell",
+                                                            "port", "conn", "driver"};
+    static std::array<int, 6> counters{};
+
+    if (!object->command) {
+        const auto kind = static_cast<size_t>(object->kind);
+        object->handle = prefixes[kind] + std::to_string(counters[kind]++);
+        object->command = Tcl_CreateObjCommand(interp, object->handle.c_str(), ObjectCmd, object,
+                                               ObjectDeleted);
+    }
+    return str(object->handle);
+}
+
+template<typename T>
+int setList(Tcl_Interp* interp, const std::vector<T*>& objects) {
+    Tcl_Obj* list = Tcl_NewListObj(0, nullptr);
+    for (T* object : objects) Tcl_ListObjAppendElement(interp, list, expose(interp, object));
+    Tcl_SetObjResult(interp, list);
+    return TCL_OK;
+}
+
+// Frees `object` and everything below it. Children with a live command are
+// deleted through Tcl, which calls back into ObjectDeleted for them.
+void destroyTree(Object* object) {
+    const std::vector<Object*> children = object->children;
+    for (Object* child : children) {
+        if (child->command)
+            Tcl_DeleteCommandFromToken(object->tree.interp, child->command);
+        else
+            destroyTree(child);
     }
 
-    // Get the handle name (e.g., "module0")
-    std::string handle = argv[0];
+    if (object->kind == Kind::Tree)
+        delete static_cast<Tree*>(object);
+    else
+        object->tree.release(object);
+}
 
-    // Find the corresponding Module instance
-    auto it = modules.find(handle);
-    if (it == modules.end()) {
-        Tcl_SetResult(interp, const_cast<char*>("Invalid module handle"), TCL_STATIC);
-        return TCL_ERROR;
+void ObjectDeleted(ClientData clientData) {
+    auto* object = static_cast<Object*>(clientData);
+    object->command = nullptr;
+    destroyTree(object);
+}
+
+// Looks up `objv[1]` in `methods`; on failure leaves Tcl's standard
+// "bad method ... must be ..." message in the result.
+bool getMethod(Tcl_Interp* interp, Tcl_Obj* const objv[], const char* const methods[], int& index) {
+    return Tcl_GetIndexFromObj(interp, objv[1], methods, "method", 0, &index) == TCL_OK;
+}
+
+bool checkArgs(Tcl_Interp* interp, int objc, Tcl_Obj* const objv[], int expected,
+               const char* usage = nullptr) {
+    if (objc == expected) return true;
+    Tcl_WrongNumArgs(interp, 2, objv, usage);
+    return false;
+}
+
+// --- per-kind methods -------------------------------------------------------
+
+int TreeMethod(Tree& tree, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
+    static const char* const methods[] = {"get_module", "diagnostics", nullptr};
+    enum { GET_MODULE, DIAGNOSTICS };
+    int method;
+    if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
+
+    switch (method) {
+        case GET_MODULE: {
+            if (!checkArgs(interp, objc, objv, 3, "module_name")) return TCL_ERROR;
+            const std::string name = Tcl_GetString(objv[2]);
+            Instance* module = tree.findModule(name);
+            if (!module) return error(interp, "module \"" + name + "\" not found");
+            Tcl_SetObjResult(interp, expose(interp, module));
+            return TCL_OK;
+        }
+        case DIAGNOSTICS:
+            if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
+            return setResult(interp, tree.diagnostics());
     }
-
-    auto& module = it->second;
-
-    // handle method called
-    std::string method = argv[1];
-    if (method == "name") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <module_name> name"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(module->name.c_str(), module->name.length()));
-        return TCL_OK;
-    } else if (method == "get_ports") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <module_name> get_ports"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        // collect ports
-        vector<string> portHandles = module->getPorts();
-
-        // convert ports to Tcl_StringObj
-        const int ports_size = portHandles.size();
-        vector<Tcl_Obj*> portsObjForm(ports_size);
-        for (int i=0; i < ports_size; i++) {
-            const string portHandle = portHandles[i];
-            portsObjForm[i] = Tcl_NewStringObj(portHandle.c_str(), portHandle.length());
-
-            Tcl_CreateCommand(interp, portHandle.c_str(), Port_MethodCmd, (ClientData)&ports[portHandle], nullptr);
-        }
-
-        Tcl_SetObjResult(interp, Tcl_NewListObj(ports_size, portsObjForm.data()));
-        return TCL_OK;
-    } else if (method == "get_cells") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <module_name> get_cells"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        // collect cells
-        vector<string> cellHandles = module->getCells();
-
-        // convert cells to Tcl_StringObj
-        const unsigned int cells_size = cellHandles.size();
-        vector<Tcl_Obj*> cellsObjForm(cells_size);
-        for (int i=0; i < cells_size; i++) {
-            const string cellHandle = cellHandles[i];
-            cellsObjForm[i] = Tcl_NewStringObj(cellHandle.c_str(), cellHandle.length());
-
-            Tcl_CreateCommand(interp, cellHandle.c_str(), Cell_MethodCmd, (ClientData)&cells[cellHandle], nullptr);
-        }
-
-        Tcl_SetObjResult(interp, Tcl_NewListObj(cells_size, cellsObjForm.data()));
-        return TCL_OK;
-    } else if (method == "print_tree") {
-
-    }
-
-    Tcl_SetResult(interp, const_cast<char*>("Unknown method"), TCL_STATIC);
     return TCL_ERROR;
 }
 
-int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]) {
-    if (argc < 2) {
-        Tcl_SetResult(interp, const_cast<char*>("Usage: <handle> <method> [args...]"), TCL_STATIC);
-        return TCL_ERROR;
+int InstanceMethod(Instance& instance, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
+    static const char* const methods[] = {"name", "get_ports", "get_cells", "get_connections",
+                                          nullptr};
+    enum { NAME, GET_PORTS, GET_CELLS, GET_CONNECTIONS };
+    int method;
+    if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
+    if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
+
+    switch (method) {
+        case NAME: return setResult(interp, instance.name);
+        case GET_PORTS: return setList(interp, instance.ports());
+        case GET_CELLS: return setList(interp, instance.cells());
+        case GET_CONNECTIONS: return setList(interp, instance.connections());
     }
+    return TCL_ERROR;
+}
 
-    // Get the handle name (e.g., "port0")
-    std::string handle = argv[0];
+int PortMethod(Port& port, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
+    static const char* const methods[] = {"name", "direction", "portType", "type", "dimType",
+                                          "dimensions", nullptr};
+    enum { NAME, DIRECTION, PORT_TYPE, TYPE, DIM_TYPE, DIMENSIONS };
+    int method;
+    if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
+    if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
 
-    // Find the corresponding Tree instance
-    auto it = ports.find(handle);
-    if (it == ports.end()) {
-        Tcl_SetResult(interp, const_cast<char*>("Invalid port handle"), TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    auto& port = it->second;
-
-    std::string method = argv[1];
-
-    bool data_method = (method == "portType" || method == "direction" || method == "type" || method == "portType" || method == "dimType" || method == "dimensions" || method == "name");
-
-    if (data_method) {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <handle> <data_member>"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        if (method == "portType") {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(port->portType.c_str(), port->portType.length()));
-        } else if (method == "direction") {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(port->direction.c_str(), port->direction.length()));
-        } else if (method == "dimensions") {
-            const unsigned int dimCount = (const unsigned int)port->dimensions.size();
-
-            vector<Tcl_Obj*> dims(dimCount);
-
-            unsigned int nDim = 0;
-            for (array<int, 2> dim : port->dimensions) {
-                Tcl_Obj* dimRange[2] = {Tcl_NewIntObj(dim[0]), Tcl_NewIntObj(dim[1])};
-
-                Tcl_Obj* obj = Tcl_NewListObj(2, dimRange);
-                dims[nDim] = obj;
-                nDim++;
+    switch (method) {
+        case NAME: return setResult(interp, port.name);
+        case DIRECTION: return setResult(interp, port.direction);
+        case PORT_TYPE: return setResult(interp, port.portType);
+        case TYPE: return setResult(interp, port.decType);
+        case DIM_TYPE: return setResult(interp, "");
+        case DIMENSIONS: {
+            Tcl_Obj* dims = Tcl_NewListObj(0, nullptr);
+            for (const auto& [left, right] : port.dimensions) {
+                Tcl_Obj* range[2] = {Tcl_NewIntObj(left), Tcl_NewIntObj(right)};
+                Tcl_ListObjAppendElement(interp, dims, Tcl_NewListObj(2, range));
             }
-
-
-            Tcl_SetObjResult(interp, Tcl_NewListObj(dimCount, dims.data()));
-        } else if (method == "name") {
-            string portString = string(port->port->name);
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(portString.c_str(), portString.length()));
-        } else if (method == "type") {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(port->decType.c_str(), port->decType.length()));
-        } else if (method == "dimType") {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(port->dimType.c_str(), port->dimType.length()));
-        } else {
-            Tcl_SetResult(interp, const_cast<char*>("Invalid data member name used."), TCL_STATIC);
-            return TCL_ERROR;
+            Tcl_SetObjResult(interp, dims);
+            return TCL_OK;
         }
-
-        return TCL_OK;
     }
-
-    Tcl_SetResult(interp, const_cast<char*>("Unknown method"), TCL_STATIC);
     return TCL_ERROR;
 }
 
-int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]) {
-    if (argc < 2) {
-        Tcl_SetResult(interp, const_cast<char *>("Usage: <cell_name> <method> [args...]"), TCL_STATIC);
-        return TCL_ERROR;
+int ConnectionMethod(Connection& conn, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
+    static const char* const methods[] = {"name", "get_port", "get_driver", nullptr};
+    enum { NAME, GET_PORT, GET_DRIVER };
+    int method;
+    if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
+    if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
+
+    switch (method) {
+        case NAME: return setResult(interp, conn.name());
+        case GET_PORT: Tcl_SetObjResult(interp, expose(interp, conn.port())); return TCL_OK;
+        case GET_DRIVER: {
+            Driver* driver = conn.driver();
+            if (!driver) return setResult(interp, "");  // unconnected
+            Tcl_SetObjResult(interp, expose(interp, driver));
+            return TCL_OK;
+        }
     }
-
-    // Get the handle name (e.g., "module0")
-    std::string handle = argv[0];
-
-    // Find the corresponding Module instance
-    auto it = cells.find(handle);
-    if (it == cells.end()) {
-        Tcl_SetResult(interp, const_cast<char *>("Invalid cell handle"), TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    auto &cell = it->second;
-
-    // handle method called
-    std::string method = argv[1];
-    if (method == "name") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <cell_name> name"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(cell->name.c_str(), cell->name.length()));
-        return TCL_OK;
-    } else if (method == "get_ports") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <cell_name> get_ports"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        // collect ports
-        vector<string> portHandles = cell->getPorts();
-
-        // convert ports to Tcl_StringObj
-        const int ports_size = portHandles.size();
-        vector<Tcl_Obj*> portsObjForm(ports_size);
-        for (int i=0; i < ports_size; i++) {
-            const string portHandle = portHandles[i];
-            portsObjForm[i] = Tcl_NewStringObj(portHandle.c_str(), portHandle.length());
-
-            Tcl_CreateCommand(interp, portHandle.c_str(), Port_MethodCmd, (ClientData)&ports[portHandle], nullptr);
-        }
-
-        Tcl_SetObjResult(interp, Tcl_NewListObj(ports_size, portsObjForm.data()));
-        return TCL_OK;
-    } else if (method == "get_connections") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <cell_name> get_connections"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        // collect cells
-        vector<string> connHandles = cell->getPortConns();
-
-        // convert cells to Tcl_StringObj
-        const unsigned int conns_size = connHandles.size();
-        vector<Tcl_Obj*> cellsObjForm(conns_size);
-        for (int i=0; i < conns_size; i++) {
-            const string connHandle = connHandles[i];
-            cellsObjForm[i] = Tcl_NewStringObj(connHandle.c_str(), connHandle.length());
-
-            Tcl_CreateCommand(interp, connHandle.c_str(), PortConn_MethodCmd, (ClientData)&connections[connHandle], nullptr);
-        }
-
-        Tcl_SetObjResult(interp, Tcl_NewListObj(conns_size, cellsObjForm.data()));
-        return TCL_OK;
-    } else if (method == "get_cells") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <cell_name> get_cells"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        // collect cells
-        vector<string> cellHandles = cell->getCells();
-
-        // convert cells to Tcl_StringObj
-        const unsigned int cells_size = cellHandles.size();
-        vector<Tcl_Obj*> cellsObjForm(cells_size);
-        for (int i=0; i < cells_size; i++) {
-            const string& cellHandle = cellHandles[i];
-            cellsObjForm[i] = Tcl_NewStringObj(cellHandle.c_str(), cellHandle.length());
-
-            Tcl_CreateCommand(interp, cellHandle.c_str(), Cell_MethodCmd, (ClientData)&cells[cellHandle], nullptr);
-        }
-
-        Tcl_SetObjResult(interp, Tcl_NewListObj(cells_size, cellsObjForm.data()));
-        return TCL_OK;
-    }
-
-    Tcl_SetResult(interp, const_cast<char*>("Unknown method"), TCL_STATIC);
     return TCL_ERROR;
 }
 
-int PortConn_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]) {
-    if (argc < 2) {
-        Tcl_SetResult(interp, const_cast<char *>("Usage: <connection_name> <method> [args...]"), TCL_STATIC);
-        return TCL_ERROR;
+int DriverMethod(Driver& driver, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
+    static const char* const methods[] = {"name",     "type",      "expr",    "const",
+                                          "data_type", "net_type", "modport", nullptr};
+    enum { NAME, TYPE, EXPR, CONSTANT, DATA_TYPE, NET_TYPE, MODPORT };
+    int method;
+    if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
+    if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
+
+    // Methods that only make sense for some driver types.
+    const auto only = [&](std::initializer_list<std::string_view> types) {
+        for (auto t : types)
+            if (driver.type == t) return true;
+        error(interp, std::string(Tcl_GetString(objv[1])) + " is not available on a " +
+                          driver.type + " driver");
+        return false;
+    };
+
+    switch (method) {
+        case NAME: return setResult(interp, driver.name());
+        case TYPE: return setResult(interp, driver.type);
+        case EXPR: return setResult(interp, driver.text());
+        case CONSTANT:
+            if (!only({"const"})) return TCL_ERROR;
+            return setResult(interp, driver.constant);
+        case DATA_TYPE:
+            if (!only({"const", "var", "net", "expr"})) return TCL_ERROR;
+            return setResult(interp, driver.dataType());
+        case NET_TYPE:
+            if (!only({"net"})) return TCL_ERROR;
+            return setResult(interp, driver.netType());
+        case MODPORT:
+            if (!only({"interface"})) return TCL_ERROR;
+            return setResult(interp, driver.modport);
     }
-
-    // Get the handle name (e.g., "module0")
-    std::string handle = argv[0];
-
-    // Find the corresponding Module instance
-    auto it = connections.find(handle);
-    if (it == connections.end()) {
-        Tcl_SetResult(interp, const_cast<char *>("Invalid connection handle"), TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    auto &connection = it->second;
-
-    // handle method called
-    std::string method = argv[1];
-    if (method == "name") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <connection_handle> name"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        string portConnName = string(connection->portConn->port.name); // idk why im using port name lol
-
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(portConnName.c_str(), portConnName.length()));
-        return TCL_OK;
-    } else if (method == "get_port"){
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <connection_handle> get_port"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        string portHandle = connection->portHandle;
-
-        Tcl_CreateCommand(interp, portHandle.c_str(), Port_MethodCmd, (ClientData)&ports[portHandle], nullptr);
-
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(portHandle.c_str(), portHandle.length()));
-        return TCL_OK;
-    } else if (method == "get_driver") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <connection_handle> get_driver"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        string driverHandle = connection->driverHandle;
-        if (driverHandle.empty()) {  // unconnected port
-            Tcl_ResetResult(interp);
-            return TCL_OK;
-        }
-
-        Tcl_CreateCommand(interp, driverHandle.c_str(), Driver_MethodCmd, (ClientData)&drivers[driverHandle], nullptr);
-
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(driverHandle.c_str(), driverHandle.length()));
-        return TCL_OK;
-    }
-
-    Tcl_SetResult(interp, const_cast<char*>("Unknown method"), TCL_STATIC);
     return TCL_ERROR;
 }
 
-int Driver_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const char* argv[]) {
-    if (argc < 2) {
-        Tcl_SetResult(interp, const_cast<char *>("Usage: <driver_handle> <method> [args...]"), TCL_STATIC);
+// Every handle command: `destroy` is common, the rest is per kind.
+int ObjectCmd(ClientData clientData, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
+    auto* object = static_cast<Object*>(clientData);
+    if (objc < 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "method ?arg ...?");
         return TCL_ERROR;
     }
 
-    // Get the handle name (e.g., "module0")
-    std::string handle = argv[0];
-
-    // Find the corresponding Module instance
-    auto it = drivers.find(handle);
-    if (it == drivers.end()) {
-        Tcl_SetResult(interp, const_cast<char *>("Invalid driver handle"), TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    auto &driver = it->second;
-
-    // handle method called
-    std::string method = argv[1];
-    string driver_type = driver->type;
-
-    if (method == "name") {
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <driver_handle> name"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        if (!driver->driverSymbol) {  // const and expr drivers have no single symbol
-            Tcl_SetObjResult(interp, Tcl_NewStringObj("", 0));
-            return TCL_OK;
-        }
-
-        string driver_name = string(driver->driverSymbol->name);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(driver_name.c_str(), driver_name.size()));
-        return TCL_OK;
-    } else if (method == "type") {  // either "var" or "net"
-        if (argc != 2) {
-            Tcl_SetResult(interp, const_cast<char*>("Usage: <driver_handle> type"), TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(driver_type.c_str(), driver_type.size()));
+    if (std::string_view(Tcl_GetString(objv[1])) == "destroy") {
+        if (!checkArgs(interp, objc, objv, 2)) return TCL_ERROR;
+        Tcl_DeleteCommandFromToken(interp, object->command);  // frees `object`
+        Tcl_ResetResult(interp);
         return TCL_OK;
     }
 
-    // DRIVER TYPE HANDLING (either var or net)
-
-    /*
-    logic a;       // Variable
-     type -> logic
-
-    wire logic b;  // Net
-     type -> logic
-     netType -> wire
-     */
-
-
-    if (method == "expr") {  // source text of the connection, e.g. "bus[3:2]"
-        string text = exprText(driver->expr, driver->sourceManager);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(text.c_str(), text.size()));
-        return TCL_OK;
+    switch (object->kind) {
+        case Kind::Tree: return TreeMethod(static_cast<Tree&>(*object), interp, objc, objv);
+        case Kind::Module:
+        case Kind::Cell:
+            return InstanceMethod(static_cast<Instance&>(*object), interp, objc, objv);
+        case Kind::Port: return PortMethod(static_cast<Port&>(*object), interp, objc, objv);
+        case Kind::Connection:
+            return ConnectionMethod(static_cast<Connection&>(*object), interp, objc, objv);
+        case Kind::Driver: return DriverMethod(static_cast<Driver&>(*object), interp, objc, objv);
     }
-
-    if (method == "data_type" && (driver_type == "const" || driver_type == "expr")) {
-        string dataType = driver->expr->type->toString();
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(dataType.c_str(), dataType.size()));
-        return TCL_OK;
-    }
-
-    if (method == "modport" && driver_type == "interface") {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(driver->modport.c_str(), driver->modport.size()));
-        return TCL_OK;
-    }
-
-    // const specific commands
-    if (driver_type == "const") {
-
-        if (method == "const") {
-            string constValue = string(driver->constant);
-
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(constValue.c_str(), constValue.size()));
-            return TCL_OK;
-        }
-    }
-
-    // var specific methods
-    if (driver_type == "var" && driver->driverSymbol->kind == SymbolKind::Variable) {
-        const VariableSymbol& varSymbol = driver->driverSymbol->as<VariableSymbol>();
-        if (method == "data_type") {
-            string dataType = string(varSymbol.getType().toString());
-
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(dataType.c_str(), dataType.size()));
-            return TCL_OK;
-        }
-    }
-
-    // net specific methods
-    if (driver_type == "net" && driver->driverSymbol->kind == SymbolKind::Net) {
-        const NetSymbol& netSymbol = driver->driverSymbol->as<NetSymbol>();
-
-        if (method == "data_type") {
-            string dataType = string(netSymbol.getType().toString());
-
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(dataType.c_str(), dataType.size()));
-            return TCL_OK;
-        } else if (method == "net_type") {
-            string netType = string(netSymbol.netType.name);
-
-            Tcl_SetObjResult(interp, Tcl_NewStringObj(netType.c_str(), netType.size()));
-            return TCL_OK;
-        }
-    }
-
-    Tcl_SetResult(interp, const_cast<char*>("Unknown method"), TCL_STATIC);
     return TCL_ERROR;
 }
 
+int SlangParseCmd(ClientData, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
+    if (objc < 2) {
+        Tcl_WrongNumArgs(interp, 1, objv, "file ?file ...?");
+        return TCL_ERROR;
+    }
+
+    std::vector<std::string> paths;
+    for (int i = 1; i < objc; i++) paths.emplace_back(Tcl_GetString(objv[i]));
+
+    std::string message;
+    std::unique_ptr<Tree> tree = Tree::parse(paths, message);
+    if (!tree) return error(interp, "slang_parse: " + message);
+
+    tree->interp = interp;
+    // Ownership passes to the command; ObjectDeleted frees it.
+    Tcl_SetObjResult(interp, expose(interp, tree.release()));
+    return TCL_OK;
+}
+
+} // namespace
 
 // Initialization function required by Tcl
 extern "C" [[maybe_unused]] int Tclslang_Init(Tcl_Interp* interp) {
-    // Check Tcl version compatibility
-    if (Tcl_InitStubs(interp, "8.1", 0) == nullptr) {
+    if (Tcl_InitStubs(interp, "8.6", 0) == nullptr) {
         return TCL_ERROR;
     }
 
-    // Register the C++ functions as Tcl commands
-    Tcl_CreateCommand(interp, "slang_parse", SlangParse, nullptr, nullptr);
-
-    // Provide the package
-    Tcl_PkgProvide(interp, "tclslang", "1.0");
-
-    return TCL_OK;
+    Tcl_CreateObjCommand(interp, "slang_parse", SlangParseCmd, nullptr, nullptr);
+    return Tcl_PkgProvide(interp, "tclslang", "1.0");
 }

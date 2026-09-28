@@ -105,6 +105,89 @@ test conn-1.4 {interface port connections report the interface and modport} -bod
     list [$d type] [$d name] [$d modport]
 } -result {interface the_bus slave}
 
+# --- handle lifecycle ---------------------------------------------------------
+
+proc handle_count {} {
+    llength [info commands {[a-z]*[0-9]}]
+}
+
+test life-1.1 {asking twice returns the same handles} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    expr {[$mod get_ports] eq [$mod get_ports] && [$mod get_cells] eq [$mod get_cells]}
+} -result 1
+
+test life-1.2 {a connection's port is the cell's port handle} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    set cell [cell_named $mod u1]
+    expr {[[lindex [$cell get_connections] 0] get_port] eq [lindex [$cell get_ports] 0]}
+} -result 1
+
+test life-1.3 {tree destroy removes every handle created from it} -body {
+    set before [handle_count]
+    set tree [parse driver_kinds.v]
+    set mod [$tree get_module top]
+    foreach c [$mod get_cells] {
+        foreach conn [$c get_connections] { $conn get_port; $conn get_driver }
+    }
+    set during [handle_count]
+    $tree destroy
+    list [expr {$during > $before + 20}] [expr {[handle_count] - $before}]
+} -result {1 0}
+
+test life-1.4 {rename to {} is the same as destroy} -body {
+    set before [handle_count]
+    set tree [parse memory_nonansi.sv]
+    [$tree get_module top] get_ports
+    rename $tree {}
+    expr {[handle_count] - $before}
+} -result 0
+
+test life-1.5 {destroying a module destroys its descendants but not the tree} -body {
+    set tree [parse nested_top.v]
+    set mod [$tree get_module system]
+    set cell [lindex [$mod get_cells] 0]
+    $mod destroy
+    list [llength [info commands $cell]] [llength [info commands $tree]] \
+         [[$tree get_module system] name]
+} -result {0 1 system}
+
+test life-1.6 {a destroyed handle is no longer a command} -body {
+    set tree [parse memory_nonansi.sv]
+    $tree destroy
+    $tree get_module top
+} -returnCodes error -result {invalid command name "tree*"} -match glob
+
+test life-1.7 {parse and destroy in a loop does not accumulate handles} -body {
+    set before [handle_count]
+    for {set i 0} {$i < 50} {incr i} {
+        set tree [parse generate_and_arrays.sv]
+        foreach c [[$tree get_module top] get_cells] { $c get_connections }
+        $tree destroy
+    }
+    expr {[handle_count] - $before}
+} -result 0
+
+test life-1.8 {cells under repeated instances are distinct per instance} -body {
+    set mod [[parse repeated_instances.v] get_module top]
+    set leaves {}
+    foreach c [$mod get_cells] {
+        foreach leaf [$c get_cells] { lappend leaves $leaf }
+    }
+    llength [lsort -unique $leaves]
+} -result 4
+
+# --- errors -------------------------------------------------------------------
+
+test err-1.1 {unknown methods list the valid ones} -body {
+    [[parse memory_nonansi.sv] get_module top] frobnicate
+} -returnCodes error -match glob -result {bad method "frobnicate": must be *}
+
+test err-1.2 {driver methods that do not apply are errors} -body {
+    set mod [[parse driver_kinds.v] get_module top]
+    set d [[lindex [[cell_named $mod u1] get_connections] 0] get_driver]
+    $d net_type
+} -returnCodes error -result {net_type is not available on a var driver}
+
 set failed $::tcltest::numTests(Failed)
 cleanupTests
 exit [expr {$failed > 0}]

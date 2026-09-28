@@ -16,16 +16,12 @@ find_package(PkgConfig REQUIRED) # To use pkg-config
 pkg_check_modules(TCL REQUIRED tcl) # Find the Tcl library
 find_package(fmt REQUIRED)       # Fast formatting library
 
-# Automatically find all source and header files
-file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
-file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS include/*.h)
-
-# Add the shared library target
 add_library(tclslang SHARED
-        ${SOURCES}
-        ${HEADERS}
-        include/tclslang/hdl_tree.hpp   # (explicitly listed header for safety)
+        src/design.cpp
+        src/tclslang.cpp
+        include/tclslang/design.hpp
 )
+target_compile_options(tclslang PRIVATE -Wall -Wextra)
 
 # Ensure position-independent code (important for shared libraries)
 set_target_properties(tclslang PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -62,7 +58,8 @@ if(TCLSLANG_SANITIZE)
                     OUTPUT_VARIABLE ASAN_RUNTIME OUTPUT_STRIP_TRAILING_WHITESPACE)
     set(TCLSLANG_TEST_ENV
         "LD_PRELOAD=${ASAN_RUNTIME}"
-        "ASAN_OPTIONS=detect_leaks=0"
+        "ASAN_OPTIONS=detect_leaks=1"
+        "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/tests/lsan.supp"
         "UBSAN_OPTIONS=print_stacktrace=1")
 endif()
 
