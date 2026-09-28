@@ -90,7 +90,9 @@ void ObjectDeleted(ClientData clientData) {
 }
 
 // Looks up `objv[1]` in `methods`; on failure leaves Tcl's standard
-// "bad method ... must be ..." message in the result.
+// "bad method ... must be ..." message in the result. Each table lists
+// "destroy" last so it shows up in that message; ObjectCmd handles it before
+// dispatching, so the per-kind switches never see it.
 bool getMethod(Tcl_Interp* interp, Tcl_Obj* const objv[], const char* const methods[], int& index) {
     return Tcl_GetIndexFromObj(interp, objv[1], methods, "method", 0, &index) == TCL_OK;
 }
@@ -105,7 +107,7 @@ bool checkArgs(Tcl_Interp* interp, int objc, Tcl_Obj* const objv[], int expected
 // --- per-kind methods -------------------------------------------------------
 
 int TreeMethod(Tree& tree, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
-    static const char* const methods[] = {"get_module", "top_modules", "diagnostics", nullptr};
+    static const char* const methods[] = {"get_module", "top_modules", "diagnostics", "destroy", nullptr};
     enum { GET_MODULE, TOP_MODULES, DIAGNOSTICS };
     int method;
     if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
@@ -136,7 +138,7 @@ int TreeMethod(Tree& tree, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) 
 
 int InstanceMethod(Instance& instance, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
     static const char* const methods[] = {"name",      "ref_name",  "hier_path",
-                                          "get_ports", "get_cells", "get_connections", nullptr};
+                                          "get_ports", "get_cells", "get_connections", "destroy", nullptr};
     enum { NAME, REF_NAME, HIER_PATH, GET_PORTS, GET_CELLS, GET_CONNECTIONS };
     int method;
     if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
@@ -156,7 +158,7 @@ int InstanceMethod(Instance& instance, Tcl_Interp* interp, int objc, Tcl_Obj* co
 int PortMethod(Port& port, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
     static const char* const methods[] = {"name",     "direction", "kind",      "data_type",
                                           "net_type", "width",     "dimensions", "interface",
-                                          "modport",  nullptr};
+                                          "modport",  "destroy", nullptr};
     enum { NAME, DIRECTION, KIND, DATA_TYPE, NET_TYPE, WIDTH, DIMENSIONS, INTERFACE, MODPORT };
     int method;
     if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
@@ -185,7 +187,7 @@ int PortMethod(Port& port, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) 
 }
 
 int ConnectionMethod(Connection& conn, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
-    static const char* const methods[] = {"name", "get_port", "get_driver", nullptr};
+    static const char* const methods[] = {"name", "get_port", "get_driver", "destroy", nullptr};
     enum { NAME, GET_PORT, GET_DRIVER };
     int method;
     if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
@@ -206,7 +208,7 @@ int ConnectionMethod(Connection& conn, Tcl_Interp* interp, int objc, Tcl_Obj* co
 
 int DriverMethod(Driver& driver, Tcl_Interp* interp, int objc, Tcl_Obj* const objv[]) {
     static const char* const methods[] = {"name",     "kind",      "expr",    "const",
-                                          "data_type", "net_type", "modport", nullptr};
+                                          "data_type", "net_type", "modport", "destroy", nullptr};
     enum { NAME, KIND, EXPR, CONSTANT, DATA_TYPE, NET_TYPE, MODPORT };
     int method;
     if (!getMethod(interp, objv, methods, method)) return TCL_ERROR;
