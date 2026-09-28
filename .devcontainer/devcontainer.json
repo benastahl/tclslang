@@ -1,0 +1,35 @@
+// VS Code Dev Container: "Dev Containers: Reopen in Container" builds the
+// repo's Dockerfile (Rocky Linux 9 + fmt + slang) and opens this checkout
+// inside it, so builds, tests and C++ IntelliSense all run on Linux.
+{
+    "name": "tclslang (Rocky Linux 9)",
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "context": ".."
+    },
+
+    // Mount the live checkout over the copy baked into the image.
+    "workspaceMount": "source=${localWorkspaceFolder},target=/work,type=bind",
+    "workspaceFolder": "/work",
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.cmake-tools"
+            ],
+            "settings": {
+                "cmake.buildDirectory": "${workspaceFolder}/build",
+                // Must match how slang was built: a Debug build of tclslang
+                // against Release slang crashes inside slang (see README).
+                "cmake.configureSettings": {
+                    "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                    "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+                },
+                "cmake.configureOnOpen": true,
+                "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+                "terminal.integrated.defaultProfile.linux": "bash"
+            }
+        }
+    }
+}

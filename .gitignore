@@ -23,3 +23,7 @@ cmake-build-debug/
 Thumbs.db
 
 build-*/
+
+run.tcl
+
+PHASE1_CHANGES.md

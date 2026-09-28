@@ -49,7 +49,6 @@ module top
 - [Handle lifetime](#handle-lifetime)
 - [Testing and CI](#testing-and-ci)
 - [How it works](#how-it-works)
-- [Phase 1 changes (before and after)](#phase-1-changes-before-and-after)
 - [Roadmap](#roadmap)
 
 ---
@@ -108,6 +107,17 @@ make test    # in this repo
 ## API reference
 
 Every design object is a Tcl command, called a *handle*, and you call methods on it: `$handle method ?args?`. Each object has exactly one handle: asking for the same port twice returns the same handle. An unknown method returns Tcl's standard error listing the valid methods.
+
+```mermaid
+flowchart LR
+    parse(["slang_parse files"]) --> Tree
+    Tree -->|get_module| Inst["Module / Cell"]
+    Inst -->|get_cells| Inst
+    Inst -->|get_ports| Port
+    Inst -->|get_connections| Connection
+    Connection -->|"get_port (same handle)"| Port
+    Connection -->|get_driver| Driver
+```
 
 ### `slang_parse file ?file ...?` → tree
 
@@ -172,6 +182,26 @@ A driver describes what a port is hooked up to. `kind` is one of:
 | `expr` | any other expression | `.a({x, z})`, `.a(x & z)` |
 | `interface` | an interface instance, optionally through a modport | `.bus(the_bus.slave)` |
 
+How a connection's driver is classified:
+
+```mermaid
+flowchart TD
+    S["port connection"] --> I{"interface port?"}
+    I -- yes --> IB{"bound to an interface?"}
+    IB -- yes --> KI["interface<br/>(+ modport)"]
+    IB -- no --> U["unconnected<br/>get_driver returns empty"]
+    I -- no --> X{"has a valid expression?"}
+    X -- no --> U
+    X -- yes --> A{"output / inout?"}
+    A -- yes --> L["use the left-hand side<br/>of slang's assignment"] --> C
+    A -- no --> C{"folded to a constant?"}
+    C -- yes --> KC["const"]
+    C -- no --> R{"references a single symbol?"}
+    R -- "a net" --> KN["net"]
+    R -- "a variable" --> KV["var"]
+    R -- "no / other" --> KE["expr"]
+```
+
 | Method | Available on | Returns |
 |---|---|---|
 | `kind` | all | See the table above |
@@ -189,6 +219,16 @@ Calling a method on a driver kind it doesn't apply to raises an error, for examp
 ## Errors and diagnostics
 
 Errors are reported through slang's own formatted diagnostics:
+
+```mermaid
+flowchart LR
+    A["slang_parse a.sv b.sv"] --> B{"every file readable?"}
+    B -- no --> E1["Tcl error:<br/>cannot read file"]
+    B -- yes --> C["parse and fully elaborate<br/>as one slang Compilation"]
+    C --> D{"any errors?"}
+    D -- yes --> E2["Tcl error:<br/>design has N error(s)<br/>+ slang diagnostics"]
+    D -- no --> T["tree handle<br/>(warnings in $tree diagnostics)"]
+```
 
 ```text
 % slang_parse tests/cases/err_trailing_comma.v
@@ -215,6 +255,23 @@ set tree [slang_parse top.sv]
 set cells [[$tree get_module top] get_cells]
 $tree destroy          ;# frees the compilation and deletes every handle above
 info commands cell*    ;# -> nothing left
+```
+
+Handles form an ownership tree that mirrors how you obtained them. Destroying a node frees its whole subtree; here, `$u_a destroy` removes the dashed nodes and `$tree destroy` removes all of them:
+
+```mermaid
+flowchart TD
+    T["tree"] --> M["module top"]
+    M --> MP["port d"]
+    M --> A["cell u_a"]
+    M --> B["cell u_b"]
+    A --> AP["port d"]
+    A --> AC["connection d"]
+    AC --> AD["driver"]
+    B --> BC["connection d"]
+    BC --> BD["driver"]
+    classDef gone stroke-dasharray: 5 5,stroke:#d9534f
+    class A,AP,AC,AD gone
 ```
 
 - `$h destroy`, `rename $h {}` and interpreter teardown all free memory the same way.
@@ -245,9 +302,27 @@ cmake --build build-asan && ctest --test-dir build-asan --output-on-failure
 
 **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) builds the Docker image and runs the full suite twice on pushes to `master`, on pull requests, and on manual dispatch: once as a Release build and once with ASan and UBSan. The GitHub Actions cache keeps the fmt and slang layers, so only tclslang rebuilds.
 
+```mermaid
+flowchart LR
+    ev["push to master<br/>pull request<br/>manual dispatch"] --> img["docker build<br/>Rocky Linux 9 image"]
+    cache[("GHA cache<br/>fmt + slang layers")] -.-> img
+    img --> rel["Release<br/>build + ctest"]
+    img --> asan["RelWithDebInfo + ASan/UBSan<br/>build + ctest"]
+```
+
 ---
 
 ## How it works
+
+```mermaid
+flowchart LR
+    script["Tcl script<br/>(tclsh)"] -->|"slang_parse<br/>$handle method"| binding
+    subgraph ext["libtclslang.so"]
+        binding["src/tclslang.cpp<br/>Tcl commands, method dispatch,<br/>handle lifetime"] --> model["src/design.cpp<br/>Tree, Instance, Port,<br/>Connection, Driver"]
+    end
+    rtl[".sv / .v files"] --> slang
+    model --> slang["slang<br/>SyntaxTree + Compilation"]
+```
 
 ```text
 include/tclslang/design.hpp   slang-facing model: Tree, Instance, Port, Connection, Driver
@@ -262,193 +337,6 @@ examples/                     scripts that use the API
 - **Tcl-native commands.** `Tcl_CreateObjCommand` stores the object in `clientData`, and its delete proc frees that object's subtree. Method names are resolved with `Tcl_GetIndexFromObj`.
 - **Traversal.** Cells are found by walking an instance body through generate blocks (skipping uninstantiated branches) and instance arrays, without descending into other instances.
 - **Drivers.** Output and inout connections are bound by slang as assignments, and the driver is taken from the left-hand side. A connection is `const` if slang folded it to a constant, `var` or `net` if it references a single symbol, and `expr` otherwise. The text comes from the expression's source range, because slang synthesizes some nodes without syntax, such as implicit conversions and per-element array connections.
-
----
-
-## Phase 1 changes (before and after)
-
-Phase 1 took tclslang from a working prototype to something testable, reproducible and safe to script against. The commits on the `phase1` branch, in order:
-
-| # | Commit | Summary |
-|---|---|---|
-| 0 | Docker + lifetime fix | RHEL-compatible Dockerfile; fixed a use-after-free that affected every handle |
-| 1 | Repo hygiene | Orphan submodule, `.gitignore`, Makefile, example rename, net-driver print bug |
-| 2 | Remove debug prints | The library no longer writes to stdout |
-| 3 | Regression suite | Golden and tcltest suites in CTest; cases that were known to fail tracked as disabled |
-| 4 | CI | GitHub Actions: Release plus ASan/UBSan, running in the Docker image |
-| 4b | VLA fix | Undefined behavior found by the new UBSan job on its first run |
-| 5 | Hardening + diagnostics | Crash fixes, generate/array/interface support, real error messages |
-| 6 | Object model | Tree-owned handles, `destroy`, handle caching, `Tcl_CreateObjCommand` |
-| 7 | API fixes | Correct port types, `ref_name`/`hier_path`, `get_module` for any module |
-| 8 | README | This document |
-
-### Every handle pointed at freed memory
-
-`Tree::getModule` created slang's `Compilation` as a local variable. It was destroyed when `get_module` returned, and every module, port, cell and driver handle kept pointing into it. It seemed to work on the original machine because the freed memory hadn't been reused yet. On a fresh RHEL 9 container it crashed:
-
-**Before**, running the original example script:
-```text
-   driver name: in_net
-   driver type: in_net
-   driver data_type: logic
-terminate called after throwing an instance of 'std::length_error'
-  what():  basic_string::_M_create
-```
-
-The same code built with AddressSanitizer fails on the first `get_ports` call:
-```text
-==116==ERROR: AddressSanitizer: heap-use-after-free on address 0xffffa5617368
-READ of size 8 at 0xffffa5617368 thread T0
-    #0 in Instance::getPorts[abi:cxx11]() const /src/include/tclslang/hdl_tree.hpp:282
-    #1 in Module_MethodCmd(void*, Tcl_Interp*, int, char const**) /src/src/tclslang.cpp:170
-```
-
-**After:** the `Tree` owns the `Compilation`, and in step 6 everything else too. CI runs the suite under ASan, so this class of bug fails the build.
-
-### Crashes on ordinary connections
-
-**Before:** any connection that wasn't a plain signal, such as `.a({x, z})` or `.a(x & z)`, dereferenced a null symbol:
-```text
-bash: line 1:   115 Segmentation fault      tclsh before.tcl
-```
-Interface ports were cast to `PortSymbol`, which is undefined behavior.
-
-**After:** these become `expr` and `interface` drivers:
-```text
-u_concat : leaf    (top.u_concat)
-  .a            input   <- {x, z}  (expression, logic[1:0])
-u_cons : consumer    (top.u_cons)
-  .bus          interface <- the_bus  (interface, modport slave)
-```
-
-### Broken designs were accepted silently
-
-**Before:**
-```tcl
-% slang_parse err_trailing_comma.v        ;# has a syntax error
-tree0
-% slang_parse /no/such/file.sv
-Failed to parse Verilog file.
-% $tree get_module nope                    ;# returns "" and prints to stderr
-Failed to find module with given name.
-Module name not found: "nope"
-```
-
-**After:** syntax and elaboration errors fail the parse with slang's diagnostics, and a missing module is a Tcl error:
-```tcl
-% slang_parse err_trailing_comma.v
-slang_parse: design has 1 error(s)
-err_trailing_comma.v:9:48: error: misplaced trailing ','
-    input wire [7:9] i_select, hello_there_haha,
-                                               ^
-% slang_parse /no/such/file.sv
-slang_parse: cannot read "/no/such/file.sv": No such file or directory
-% $tree get_module nope
-module "nope" not found
-```
-
-Four of the original seven test files turned out to contain syntax errors that had been parsing "successfully". They're now the error-path golden cases.
-
-### Instances in generate blocks and arrays were invisible
-
-**Before:** `get_cells` only looked at direct members of the module body, so a module built from `for` generate loops and instance arrays had no cells:
-```tcl
-% [[slang_parse generate_and_arrays.sv] get_module top] get_cells
-                                           ;# empty
-```
-
-**After:** the traversal looks through generate blocks, skipping branches whose condition is false, and through instance arrays. Cells are named by their path:
-```tcl
-% lmap c [$top get_cells] {$c name}
-{u_array[0]} {u_array[1]} {g_loop[0].u_gen} {g_loop[1].u_gen} g_if.u_cond
-```
-
-### Port types were guessed from the direction
-
-**Before:** `type` returned `wire` for every input and `reg` for every output, whatever the declaration said. `dimType` was never set.
-```text
-in_var:  portType=Variable type=wire direction=In  dimType=<>     ;# declared `input logic`
-out_var: portType=Variable type=reg  direction=Out dimType=<>     ;# declared `output logic`
-```
-
-**After:** the types come from slang:
-```text
-port in_var input var : logic width=1
-port in_net input net : logic (wire) width=1
-port addr input net : logic[3:0]$[0:15] (wire) width=64 dims={0 15} {3 0}
-```
-
-### Memory was never freed, and handles multiplied
-
-**Before:** every object lived forever in a global map. Every call allocated new objects and registered new commands, even for the same port:
-```tcl
-% $m get_ports
-port3 port4 port5
-% $m get_ports
-port6 port7 port8
-```
-
-**After:** handles are cached and owned by their tree:
-```tcl
-% expr {[$m get_ports] eq [$m get_ports]}
-1
-% $tree destroy; info commands port*
-                                           ;# nothing left
-```
-
-The sanitizer job runs with leak detection on. As a check that it works, deliberately removing the `delete` of the tree makes the API suite fail with `8049662 byte(s) leaked in 6651 allocation(s)`.
-
-### Library noise on stdout
-
-**Before:** every query printed debugging output mixed into the script's own output, 522 lines for the seven original test files:
-```text
-InstanceSymbol:
-	Name: top
-	Kind: Instance
-	Port List: address data_in data_out read_write chip_en
-	Port Connections:
-got instance: top of type Instance
-Port Name: address
-  Packed array range: 7 to 0
-[Note] Getting driver...
-```
-
-**After:** the library prints nothing. Output belongs to the script.
-
-### Tcl binding
-
-| | Before | After |
-|---|---|---|
-| Command API | `Tcl_CreateCommand` (string args); every call looked its object up by name in a global map | `Tcl_CreateObjCommand`; the object is the command's `clientData` |
-| Unknown method | `Unknown method` | `bad method "frobnicate": must be name, ref_name, hier_path, ...` |
-| Result building | Variable-length arrays `Tcl_Obj* x[n]`, which UBSan flagged for `n == 0` | `Tcl_ListObjAppendElement` |
-| Code layout | One header defining globals and non-`inline` functions, which broke as soon as a second `.cpp` included it | `design.hpp`/`design.cpp` (slang model) + `tclslang.cpp` (binding) |
-| Warnings | Not enabled | `-Wall -Wextra`, clean |
-
-### API migration (1.0 → 2.0)
-
-| 1.0 | 2.0 |
-|---|---|
-| `$port portType` → `Net` / `Variable` | `$port kind` → `net` / `var` / `interface` / `multiport` |
-| `$port type` → `wire`/`reg` (guessed) | `$port data_type` → `logic[7:0]`, plus `$port net_type` → `wire` |
-| `$port dimType` (always empty) | removed |
-| `$port direction` → `In` / `Out` / `InOut` | `input` / `output` / `inout` / `ref` |
-| `$driver type` → `var` / `net` / `const` | `$driver kind`, which adds `expr` and `interface` |
-| `$tree get_module x` → `""` if missing | Tcl error; also finds modules below the top |
-| — | New: `destroy` on every handle, `$tree top_modules`, `$tree diagnostics`, `$cell ref_name`, `$cell hier_path`, `$port width`/`interface`/`modport`, `$driver expr`/`modport` |
-
-### Build, tooling and repo
-
-| | Before | After |
-|---|---|---|
-| Setup | 10 manual steps: yum, pip, conan, a slang build with `sudo cmake --install` | `docker build -t tclslang .`, or the native steps above with no conan |
-| slang version | Whatever `git clone` fetched that day | Pinned to `652a9ab` in the Dockerfile and CI |
-| `slang` directory | An orphan submodule pointer (no `.gitmodules`), always empty | Removed; slang is built where it's needed |
-| Makefile | `-j$(nproc)` was an empty make variable, so `-j` was unlimited. `run` pointed at a nonexistent binary, `build` always ran `make clean` first, and the default script path was `./test.tcl  # default path lol` | `build`, `test`, `example`, `docker`, `docker-test` |
-| `.gitignore` | `./build/` (never matched) | `build/` |
-| Example | `yerrr.tcl`, which printed `[$d name]` as the driver type in the net branch | [`examples/dump_hierarchy.tcl`](examples/dump_hierarchy.tcl) |
-| Tests | 7 `.v` files and a terminal paste (`expected_output.txt`) compared by eye | 14 golden cases + 32 API tests + an example smoke test in CTest |
-| CI | None | GitHub Actions: Release and ASan+UBSan+LSan |
 
 ---
 
