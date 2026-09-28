@@ -1,7 +1,7 @@
 # tclslang build environment on a RHEL-compatible base (Rocky Linux 9).
 #
 #   docker build -t tclslang .
-#   docker run --rm -it tclslang                          # runs the example script
+#   docker run --rm tclslang                              # runs the test suite
 #   docker run --rm -it -v "$PWD":/work tclslang bash     # dev shell on your checkout
 
 FROM rockylinux:9
@@ -13,6 +13,7 @@ ARG JOBS=4
 RUN dnf install -y dnf-plugins-core \
  && dnf config-manager --set-enabled crb \
  && dnf install -y gcc-c++ make cmake git python3 tcl tcl-devel pkgconf-pkg-config diffutils \
+      libasan libubsan \
  && dnf clean all
 
 # fmt: installed as a shared library so both slang and tclslang link the same one
@@ -40,4 +41,4 @@ WORKDIR /work
 COPY . .
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j${JOBS}
 
-CMD ["tclsh", "examples/dump_hierarchy.tcl"]
+CMD ["ctest", "--test-dir", "build", "--output-on-failure"]

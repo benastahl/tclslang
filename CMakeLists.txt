@@ -44,6 +44,28 @@ target_include_directories(tclslang
         ${CMAKE_CURRENT_SOURCE_DIR}/include  # Include your own headers
 )
 
+# AddressSanitizer + UndefinedBehaviorSanitizer build of the extension.
+# tclsh itself is not instrumented, so the ASan runtime is preloaded into the
+# test processes (see TCLSLANG_TEST_ENV below).
+#
+# Use Release or RelWithDebInfo, matching how slang was built: slang's headers
+# change class layouts when NDEBUG is unset (SLANG_ASSERT_ENABLED), so a Debug
+# build against a Release slang crashes inside slang.
+option(TCLSLANG_SANITIZE "Build with -fsanitize=address,undefined" OFF)
+set(TCLSLANG_TEST_ENV "")
+if(TCLSLANG_SANITIZE)
+    set(SAN_FLAGS -fsanitize=address,undefined -fno-sanitize-recover=undefined
+                  -fno-omit-frame-pointer)
+    target_compile_options(tclslang PRIVATE ${SAN_FLAGS})
+    target_link_options(tclslang PRIVATE ${SAN_FLAGS})
+    execute_process(COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libasan.so
+                    OUTPUT_VARIABLE ASAN_RUNTIME OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(TCLSLANG_TEST_ENV
+        "LD_PRELOAD=${ASAN_RUNTIME}"
+        "ASAN_OPTIONS=detect_leaks=0"
+        "UBSAN_OPTIONS=print_stacktrace=1")
+endif()
+
 # ---------------------------------------------------------------------------
 # Tests: one golden-output test per case in tests/cases, plus the tcltest
 # API suite. Run with `ctest --test-dir build --output-on-failure`.
@@ -78,6 +100,8 @@ if(TCLSLANG_BUILD_TESTS)
                  COMMAND ${TCLSH} ${TEST_DIR}/run_golden.tcl
                          $<TARGET_FILE:tclslang> ${case}
                          ${CMAKE_CURRENT_BINARY_DIR}/golden-actual)
+        set_tests_properties(golden.${name} PROPERTIES
+                             ENVIRONMENT "${TCLSLANG_TEST_ENV}")
         if(name IN_LIST TCLSLANG_KNOWN_FAILURES)
             set_tests_properties(golden.${name} PROPERTIES DISABLED TRUE)
         endif()
@@ -85,4 +109,5 @@ if(TCLSLANG_BUILD_TESTS)
 
     add_test(NAME api
              COMMAND ${TCLSH} ${TEST_DIR}/api.test $<TARGET_FILE:tclslang>)
+    set_tests_properties(api PROPERTIES ENVIRONMENT "${TCLSLANG_TEST_ENV}")
 endif()
