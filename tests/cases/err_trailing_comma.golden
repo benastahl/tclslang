@@ -1,0 +1,5 @@
+error: slang_parse: design has 1 error(s)
+err_trailing_comma.v:9:48: error: misplaced trailing ','
+    input wire [7:9] i_select, hello_there_haha,
+                                               ^
+

@@ -63,7 +63,9 @@ int SlangParse(ClientData clientData, Tcl_Interp* interp, int argc, const char* 
 
     auto syntaxTreeOpt = SyntaxTree::fromFiles(filePaths);
     if (!syntaxTreeOpt) {
-        Tcl_SetResult(interp, const_cast<char*>("Failed to parse Verilog file."), TCL_VOLATILE);
+        const auto& [code, path] = syntaxTreeOpt.error();
+        string msg = "slang_parse: cannot read \"" + string(path) + "\": " + code.message();
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(msg.c_str(), msg.size()));
         return TCL_ERROR;
     }
 
@@ -71,6 +73,12 @@ int SlangParse(ClientData clientData, Tcl_Interp* interp, int argc, const char* 
 
     // Create a new Tree instance
     auto tree = std::make_unique<Tree>(syntaxTree);
+    if (tree->numErrors > 0) {
+        string msg = "slang_parse: design has " + to_string(tree->numErrors) + " error(s)\n" +
+                     tree->diagnostics;
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(msg.c_str(), msg.size()));
+        return TCL_ERROR;
+    }
 
     // Generate a unique handle
     static int treeCounter = 0;
@@ -116,14 +124,19 @@ int Tree_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
         std::string moduleName = argv[2];
         auto moduleHandle = tree->getModule(moduleName);
         if (moduleHandle == nullopt) {
-            Tcl_SetResult(interp, nullptr, TCL_STATIC); // empty string in tcl
-            return TCL_OK;  // have tcl script-writer handle the error
+            string msg = "module \"" + moduleName + "\" not found";
+            Tcl_SetObjResult(interp, Tcl_NewStringObj(msg.c_str(), msg.size()));
+            return TCL_ERROR;
         }
 
         // set module method command
         Tcl_CreateCommand(interp, moduleHandle.value().c_str(), Module_MethodCmd, (ClientData)&modules[moduleHandle.value()], nullptr);
 
         Tcl_SetObjResult(interp, Tcl_NewStringObj(moduleHandle->c_str(), moduleHandle->length()));
+        return TCL_OK;
+    } else if (method == "diagnostics") {
+        // Warnings (a tree with errors is never created).
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(tree->diagnostics.c_str(), tree->diagnostics.size()));
         return TCL_OK;
     }
 
@@ -422,6 +435,10 @@ int PortConn_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, cons
         }
 
         string driverHandle = connection->driverHandle;
+        if (driverHandle.empty()) {  // unconnected port
+            Tcl_ResetResult(interp);
+            return TCL_OK;
+        }
 
         Tcl_CreateCommand(interp, driverHandle.c_str(), Driver_MethodCmd, (ClientData)&drivers[driverHandle], nullptr);
 
@@ -461,7 +478,7 @@ int Driver_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const 
             return TCL_ERROR;
         }
 
-        if (driver_type == "const") {
+        if (!driver->driverSymbol) {  // const and expr drivers have no single symbol
             Tcl_SetObjResult(interp, Tcl_NewStringObj("", 0));
             return TCL_OK;
         }
@@ -490,6 +507,23 @@ int Driver_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const 
      netType -> wire
      */
 
+
+    if (method == "expr") {  // source text of the connection, e.g. "bus[3:2]"
+        string text = exprText(driver->expr, driver->sourceManager);
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(text.c_str(), text.size()));
+        return TCL_OK;
+    }
+
+    if (method == "data_type" && (driver_type == "const" || driver_type == "expr")) {
+        string dataType = driver->expr->type->toString();
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(dataType.c_str(), dataType.size()));
+        return TCL_OK;
+    }
+
+    if (method == "modport" && driver_type == "interface") {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(driver->modport.c_str(), driver->modport.size()));
+        return TCL_OK;
+    }
 
     // const specific commands
     if (driver_type == "const") {

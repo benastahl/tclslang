@@ -10,15 +10,29 @@ proc dump::driver {d} {
         return "unconnected"
     }
     switch -- [$d type] {
-        const { return "const [$d const]" }
-        var   { return "var [$d name] : [$d data_type]" }
-        net   { return "net [$d name] : [$d data_type] ([$d net_type])" }
-        default { return "[$d type]" }
+        const     { set desc "const [$d const]" }
+        var       { set desc "var [$d name] : [$d data_type]" }
+        net       { set desc "net [$d name] : [$d data_type] ([$d net_type])" }
+        expr      { return "expr {[$d expr]} : [$d data_type]" }
+        interface {
+            set desc "interface [$d name]"
+            if {[$d modport] ne ""} { append desc " modport [$d modport]" }
+            return $desc
+        }
+        default   { error "unknown driver type [$d type]" }
     }
+    # Show the connection text when it is more than the bare name/value,
+    # e.g. a select (bus[3:2]) or hierarchical reference (ifc.sig).
+    set text [$d expr]
+    set plain [expr {[$d type] eq "const" ? [$d const] : [$d name]}]
+    if {$text ne $plain} {
+        append desc " via {$text}"
+    }
+    return $desc
 }
 
 proc dump::port {p} {
-    set line "port [$p name] [$p direction] [$p portType]"
+    set line [join [concat port [$p name] [$p direction] [$p portType]]]
     if {[llength [$p dimensions]]} {
         append line " dims=[$p dimensions]"
     }
@@ -30,7 +44,8 @@ proc dump::cell {c indent} {
     set out "${pad}cell [$c name]\n"
     foreach conn [$c get_connections] {
         set p [$conn get_port]
-        append out "${pad}  conn [$conn name] ([$p direction]) <- [dump::driver [$conn get_driver]]\n"
+        set dir [expr {[$p direction] ne "" ? [$p direction] : [$p portType]}]
+        append out "${pad}  conn [$conn name] ($dir) <- [dump::driver [$conn get_driver]]\n"
     }
     foreach child [$c get_cells] {
         append out [dump::cell $child [expr {$indent + 1}]]

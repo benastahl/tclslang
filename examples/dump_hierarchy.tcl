@@ -11,9 +11,12 @@ foreach file $files {
     puts "Parsing file: $file"
     puts "==============================="
 
-    set tree [slang_parse $file]
-    set module [$tree get_module top]
-    if {$module eq ""} {  # checks for null if module name not found
+    if {[catch {slang_parse $file} tree]} {
+        puts $tree
+        continue
+    }
+    if {[catch {$tree get_module top} module]} {
+        puts $module
         continue
     }
 
@@ -72,6 +75,14 @@ foreach file $files {
             } elseif {$driverType eq "const"} {
                 puts "   driver name: [$d name]"
                 puts "   const: [$d const]"
+
+            } elseif {$driverType eq "expr"} {
+                puts "   driver expr: [$d expr]"
+                puts "   driver data_type: [$d data_type]"
+
+            } elseif {$driverType eq "interface"} {
+                puts "   driver name: [$d name]"
+                puts "   driver modport: [$d modport]"
             }
 
             puts "  ----------------------------"

@@ -16,13 +16,20 @@ if {$actualDir eq ""} {
     exit 2
 }
 
-load $lib
-source [file join [file dirname [info script]] lib dump.tcl]
+source [file join [file dirname [file normalize [info script]]] lib dump.tcl]
 
+set lib [file normalize $lib]
+set actualDir [file normalize $actualDir]
+set case [file normalize $case]
+load $lib
+
+# Run from the cases directory so file names in diagnostics are relative.
+cd [file dirname $case]
+set name [file tail $case]
 if {[file isdirectory $case]} {
-    set files [lsort [glob -directory $case *.sv *.v]]
+    set files [lsort [glob -directory $name *.sv *.v]]
 } else {
-    set files [list $case]
+    set files [list $name]
 }
 
 set top top
@@ -33,10 +40,9 @@ foreach f $files {
     regexp -line {^//\s*top:\s*(\S+)} $src -> top
 }
 
-# Make paths in error messages independent of where the repo is checked out.
-set actual [string map [list "[file dirname $case]/" ""] [dump::design $files $top]]
+set actual [dump::design $files $top]
 
-set name [file rootname [file tail $case]]
+set name [file rootname $name]
 set golden [file rootname $case].golden
 set actualFile [file join $actualDir $name.actual]
 file mkdir $actualDir

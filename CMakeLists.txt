@@ -81,13 +81,7 @@ if(TCLSLANG_BUILD_TESTS)
     # Cases the library is known to get wrong. They stay registered (and
     # visible as "Not Run (Disabled)") until the fix lands with its golden.
     set(TCLSLANG_KNOWN_FAILURES
-        err_missing_comma          # syntax errors are silently accepted
-        err_missing_semicolon
-        err_trailing_comma
-        err_undeclared_ports
-        expr_connections           # segfault: expression has no symbol
-        generate_and_arrays        # instances in generate blocks are missed
-        interface_port             # interface ports cast to PortSymbol (UB)
+        # (none)
     )
 
     file(GLOB CASES CONFIGURE_DEPENDS ${TEST_DIR}/cases/*)

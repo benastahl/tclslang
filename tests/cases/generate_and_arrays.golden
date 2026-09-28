@@ -1,0 +1,12 @@
+module top
+  port d In Variable dims={3 0}
+  cell u_array[0]
+    conn d (In) <- var d : logic[3:0] via {d[1:0]}
+  cell u_array[1]
+    conn d (In) <- var d : logic[3:0] via {d[1:0]}
+  cell g_loop[0].u_gen
+    conn d (In) <- var d : logic[3:0] via {d[i]}
+  cell g_loop[1].u_gen
+    conn d (In) <- var d : logic[3:0] via {d[i]}
+  cell g_if.u_cond
+    conn d (In) <- var d : logic[3:0] via {d[3]}

@@ -14,6 +14,6 @@ module top
   cell u5
     conn a (In) <- const 1'b1
   cell u6
-    conn a (In) <- const 1'b1
+    conn a (In) <- const 1'b1 via {WIDTH}
   cell u7
-    conn a (In) <- var sig : logic
+    conn a (In) <- var sig : logic via {ifc_inst.sig}

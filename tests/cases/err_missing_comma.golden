@@ -1,0 +1,8 @@
+error: slang_parse: design has 2 error(s)
+err_missing_comma.v:2:32: error: use of undeclared identifier 'hello_there_haha'
+    input wire [7:9] i_select, hello_there_haha
+                               ^~~~~~~~~~~~~~~~
+err_missing_comma.v:2:48: error: expected identifier
+    input wire [7:9] i_select, hello_there_haha
+                                               ^
+
