@@ -170,7 +170,7 @@ int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const 
 
         // convert ports to Tcl_StringObj
         const int ports_size = portHandles.size();
-        Tcl_Obj* portsObjForm[ports_size];
+        vector<Tcl_Obj*> portsObjForm(ports_size);
         for (int i=0; i < ports_size; i++) {
             const string portHandle = portHandles[i];
             portsObjForm[i] = Tcl_NewStringObj(portHandle.c_str(), portHandle.length());
@@ -178,7 +178,7 @@ int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const 
             Tcl_CreateCommand(interp, portHandle.c_str(), Port_MethodCmd, (ClientData)&ports[portHandle], nullptr);
         }
 
-        Tcl_SetObjResult(interp, Tcl_NewListObj(ports_size, portsObjForm));
+        Tcl_SetObjResult(interp, Tcl_NewListObj(ports_size, portsObjForm.data()));
         return TCL_OK;
     } else if (method == "get_cells") {
         if (argc != 2) {
@@ -191,7 +191,7 @@ int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const 
 
         // convert cells to Tcl_StringObj
         const unsigned int cells_size = cellHandles.size();
-        Tcl_Obj* cellsObjForm[cells_size];
+        vector<Tcl_Obj*> cellsObjForm(cells_size);
         for (int i=0; i < cells_size; i++) {
             const string cellHandle = cellHandles[i];
             cellsObjForm[i] = Tcl_NewStringObj(cellHandle.c_str(), cellHandle.length());
@@ -199,7 +199,7 @@ int Module_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const 
             Tcl_CreateCommand(interp, cellHandle.c_str(), Cell_MethodCmd, (ClientData)&cells[cellHandle], nullptr);
         }
 
-        Tcl_SetObjResult(interp, Tcl_NewListObj(cells_size, cellsObjForm));
+        Tcl_SetObjResult(interp, Tcl_NewListObj(cells_size, cellsObjForm.data()));
         return TCL_OK;
     } else if (method == "print_tree") {
 
@@ -244,7 +244,7 @@ int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
         } else if (method == "dimensions") {
             const unsigned int dimCount = (const unsigned int)port->dimensions.size();
 
-            Tcl_Obj* dims[dimCount];
+            vector<Tcl_Obj*> dims(dimCount);
 
             unsigned int nDim = 0;
             for (array<int, 2> dim : port->dimensions) {
@@ -256,7 +256,7 @@ int Port_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
             }
 
 
-            Tcl_SetObjResult(interp, Tcl_NewListObj(dimCount, dims));
+            Tcl_SetObjResult(interp, Tcl_NewListObj(dimCount, dims.data()));
         } else if (method == "name") {
             string portString = string(port->port->name);
             Tcl_SetObjResult(interp, Tcl_NewStringObj(portString.c_str(), portString.length()));
@@ -315,7 +315,7 @@ int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
 
         // convert ports to Tcl_StringObj
         const int ports_size = portHandles.size();
-        Tcl_Obj* portsObjForm[ports_size];
+        vector<Tcl_Obj*> portsObjForm(ports_size);
         for (int i=0; i < ports_size; i++) {
             const string portHandle = portHandles[i];
             portsObjForm[i] = Tcl_NewStringObj(portHandle.c_str(), portHandle.length());
@@ -323,7 +323,7 @@ int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
             Tcl_CreateCommand(interp, portHandle.c_str(), Port_MethodCmd, (ClientData)&ports[portHandle], nullptr);
         }
 
-        Tcl_SetObjResult(interp, Tcl_NewListObj(ports_size, portsObjForm));
+        Tcl_SetObjResult(interp, Tcl_NewListObj(ports_size, portsObjForm.data()));
         return TCL_OK;
     } else if (method == "get_connections") {
         if (argc != 2) {
@@ -336,7 +336,7 @@ int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
 
         // convert cells to Tcl_StringObj
         const unsigned int conns_size = connHandles.size();
-        Tcl_Obj* cellsObjForm[conns_size];
+        vector<Tcl_Obj*> cellsObjForm(conns_size);
         for (int i=0; i < conns_size; i++) {
             const string connHandle = connHandles[i];
             cellsObjForm[i] = Tcl_NewStringObj(connHandle.c_str(), connHandle.length());
@@ -344,7 +344,7 @@ int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
             Tcl_CreateCommand(interp, connHandle.c_str(), PortConn_MethodCmd, (ClientData)&connections[connHandle], nullptr);
         }
 
-        Tcl_SetObjResult(interp, Tcl_NewListObj(conns_size, cellsObjForm));
+        Tcl_SetObjResult(interp, Tcl_NewListObj(conns_size, cellsObjForm.data()));
         return TCL_OK;
     } else if (method == "get_cells") {
         if (argc != 2) {
@@ -357,7 +357,7 @@ int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
 
         // convert cells to Tcl_StringObj
         const unsigned int cells_size = cellHandles.size();
-        Tcl_Obj* cellsObjForm[cells_size];
+        vector<Tcl_Obj*> cellsObjForm(cells_size);
         for (int i=0; i < cells_size; i++) {
             const string& cellHandle = cellHandles[i];
             cellsObjForm[i] = Tcl_NewStringObj(cellHandle.c_str(), cellHandle.length());
@@ -365,7 +365,7 @@ int Cell_MethodCmd(ClientData clientData, Tcl_Interp* interp, int argc, const ch
             Tcl_CreateCommand(interp, cellHandle.c_str(), Cell_MethodCmd, (ClientData)&cells[cellHandle], nullptr);
         }
 
-        Tcl_SetObjResult(interp, Tcl_NewListObj(cells_size, cellsObjForm));
+        Tcl_SetObjResult(interp, Tcl_NewListObj(cells_size, cellsObjForm.data()));
         return TCL_OK;
     }
 
